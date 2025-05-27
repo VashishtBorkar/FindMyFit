@@ -6,4 +6,6 @@ __pycache__/
 *.h5
 *.pth
 .DS_Store
-polyvore_outfits/
+data/
+venv/
+.vscode/
