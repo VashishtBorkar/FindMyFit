@@ -118,7 +118,7 @@ def create_pieces_dataframe(data_df):
 
     return pieces_df
 
-def create_pairs(df, num_negative_per_positive=1, seed=42):
+def create_embedded_pairs(df, num_negative_per_positive=1, seed=42):
     random.seed(seed)
     pairs = []
 
