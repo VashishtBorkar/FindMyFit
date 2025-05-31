@@ -4,6 +4,8 @@ import torch
 from PIL import Image
 from torchvision import transforms
 import clip
+from itertools import combinations
+import random
 
 from data_loader import load_raw_data
 
@@ -116,6 +118,55 @@ def create_pieces_dataframe(data_df):
 
     return pieces_df
 
+def create_pairs(df, num_negative_per_positive=1, seed=42):
+    random.seed(seed)
+    pairs = []
+
+    # Group all items by outfit
+    outfit_groups = df.groupby("outfit_id")
+
+    outfit_ids = df['outfit_id'].unique().tolist()
+
+    for outfit_id, group in outfit_groups:
+        pieces = group.to_dict(orient='records')
+
+        # Pairs from same outfit
+        for item1, item2 in combinations(pieces, 2):
+            pairs.append({
+                "embedding_1": item1["embedding"],
+                "embedding_2": item2["embedding"],
+                "label": 1
+            })
+
+            # Pairs from different outfits
+            for _ in range(num_negative_per_positive):
+                tries = 0
+                max_tries = 10  # To avoid infinite loop
+
+                while tries < max_tries:
+                    neg_outfit_id = random.choice([oid for oid in outfit_ids if oid != outfit_id])
+                    neg_group = df[df['outfit_id'] == neg_outfit_id]
+                    neg_item = neg_group.sample(1).iloc[0]
+
+                    # Skip if it's the same piece type (optional) or bad data
+                    if (
+                        item1['piece_type'] == neg_item['piece_type'] or
+                        not isinstance(neg_item['embedding'], np.ndarray)
+                    ):
+                        tries += 1
+                        continue
+
+                    # Valid negative, break out of loop
+                    pairs.append({
+                        "embedding_1": item1["embedding"],
+                        "embedding_2": neg_item["embedding"],
+                        "label": 0
+                    })
+                    break
+    random.shuffle(pairs)
+    return pairs
+
+
 """
 0: 'background'	1: 'top'	2: 'outer'	3: 'skirt'
 4: 'dress'	5: 'pants'	6: 'leggings'	7: 'headwear'
@@ -144,8 +195,15 @@ if __name__ == "__main__":
     # Extract embeddings
     pieces_df = create_pieces_dataframe(subset)
 
+    # Create positive negative pairs 
+    pairs = create_pairs(pieces_df)
+
     # Show preview
-    print(pieces_df.head())
+    print("Total Data Shape: ", data.shape)
+    print("Preview: ", subset.head())
+    print("Pieces Shape: ", pieces_df.shape)
+    print("Preview: ", pieces_df.head())
+    print("Length of pairs: ", len(pairs))
 
     
 

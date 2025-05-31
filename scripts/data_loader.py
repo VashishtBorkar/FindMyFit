@@ -173,6 +173,3 @@ if __name__ == "__main__":
     df = load_raw_data(images_dir, segments_dir, captions_path, shapes_path, fabrics_path, patterns_path)
     print(df.shape)
     print(df.head())
-
-
-    
