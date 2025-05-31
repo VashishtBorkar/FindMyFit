@@ -120,7 +120,8 @@ def load_raw_data(images_dir, segments_dir, captions_path, shapes_path, fabrics_
     shapes = []
     fabrics = []
     patterns = []
-
+    print("Scanning images...")
+    count = 0
     for file in os.scandir(images_dir):
         if (
             file.is_file()
@@ -130,6 +131,7 @@ def load_raw_data(images_dir, segments_dir, captions_path, shapes_path, fabrics_
             and file.name in fabrics_dict 
             and file.name in patterns_dict
         ):
+            count += 1
             image_paths.append(file.path)
             segm_image_paths.append(segm_dict[file.name])
             
@@ -137,7 +139,6 @@ def load_raw_data(images_dir, segments_dir, captions_path, shapes_path, fabrics_
             shapes.append(shapes_dict[file.name])
             fabrics.append(fabrics_dict[file.name])
             patterns.append(patterns_dict[file.name])
-
 
     df = pd.DataFrame({"image_paths" : image_paths, "segm_image_paths": segm_image_paths, "captions": captions})
 
@@ -162,11 +163,11 @@ def load_raw_data(images_dir, segments_dir, captions_path, shapes_path, fabrics_
 if __name__ == "__main__":
 
     images_dir = r"D:\Datasets\FindMyFitDatasets\deepfashion\images"
+    segments_dir = r"D:\Datasets\FindMyFitDatasets\deepfashion\segm\segm"
     captions_path = r"D:\Datasets\FindMyFitDatasets\deepfashion\captions.json"
     shapes_path = r"D:\Datasets\FindMyFitDatasets\deepfashion\labels\labels\shape\shape_anno_all.txt"
     fabrics_path = r"D:\Datasets\FindMyFitDatasets\deepfashion\labels\labels\texture\fabric_ann.txt"
     patterns_path = r"D:\Datasets\FindMyFitDatasets\deepfashion\labels\labels\texture\pattern_ann.txt"
-    segments_dir = r"D:\Datasets\FindMyFitDatasets\deepfashion\segm\segm"
 
     #segment_paths = list(parse_segmented_images(segments_dir))
     df = load_raw_data(images_dir, segments_dir, captions_path, shapes_path, fabrics_path, patterns_path)
