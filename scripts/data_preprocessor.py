@@ -6,8 +6,9 @@ from torchvision import transforms
 import clip
 from itertools import combinations
 import random
+from pathlib import Path
 
-from data_loader import load_raw_data
+from .data_loader import load_raw_data
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -48,36 +49,56 @@ def process_raw_data(raw_df):
 
     return df_encoded
 
-def get_all_piece_embeddings(image_path, mask_path, clothing_piece_dict, pixel_threshold=0.005):
+def get_all_piece_embeddings(image_path, mask_path, clothing_piece_dict, outfit_idx, cache_dir=Path("embeddings"), pixel_threshold=0.01):
+    image_path = Path(image_path)
+    mask_path = Path(mask_path)
+
     image = Image.open(image_path).convert("RGB")
     mask = Image.open(mask_path)
 
     mask_array = np.array(mask)
-    print("Unique labels in mask: ", np.unique(mask_array))
+    unique_labels = np.unique(mask_array)
+    print(f"Outfit {outfit_idx} has unique labels: {unique_labels}")
 
     embeddings = {}
-
     for piece_type, label_ids in clothing_piece_dict.items():
-        target_mask = np.isin(mask_array, label_ids).astype(np.uint8)
-        if np.mean(target_mask) < pixel_threshold:
-            continue
+        try:
+            target_mask = np.isin(mask_array, label_ids).astype(np.uint8)
+            if np.mean(target_mask) < pixel_threshold:
+                continue
 
-        # Create masked image with background blended
-        mask_normalized = target_mask[..., None] * 255
-        guided_image = np.array(image).astype(np.float32)
-        guided_image = guided_image * (mask_normalized / 255) + 128 * (1 - mask_normalized / 255)
-        guided_image = Image.fromarray(guided_image.astype(np.uint8))
+            # Create masked image with background blended
+            mask_normalized = target_mask[..., None] * 255
+            guided_image = np.array(image).astype(np.float32)
+            guided_image = guided_image * (mask_normalized / 255) + 128 * (1 - mask_normalized / 255)
+            guided_image = Image.fromarray(guided_image.astype(np.uint8))
 
-        # Preprocess and get CLIP embedding
-        preprocessed = preprocess(guided_image).unsqueeze(0).to(device)
-        with torch.no_grad():
-            embedding = model.encode_image(preprocessed)
-        embeddings[piece_type] = embedding.squeeze().cpu().numpy()
+            # File path to save embedding
+            unique_id = f"outfit_{outfit_idx}_{piece_type}"
+            embedding_path = cache_dir / f"{unique_id}.npy"
+            embedding_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if embedding_path.exists():
+                embedding_np = np.load(embedding_path)
+            else:
+                # Preprocess and get CLIP embedding
+                with torch.no_grad():
+                    preprocessed = preprocess(guided_image).unsqueeze(0).to(device)
+                    embedding = model.encode_image(preprocessed)
+                    embedding_np = embedding.squeeze().cpu().numpy()
+                    np.save(str(embedding_path), embedding_np)
+                    del preprocessed, embedding
+                    torch.cuda.empty_cache()
+
+
+            embeddings[piece_type] = embedding_np
+
+        except Exception as e:
+            print(f"Error embedding piece {piece_type} in outfit {outfit_idx}: {e}")
     
     return embeddings
 
-
-def create_pieces_dataframe(data_df):
+def create_pieces_dataframe(data_df, cache_dir=Path("embeddings")):
     pieces_dict = {
         'outfit_id': [],
         'piece_type': [],
@@ -96,7 +117,9 @@ def create_pieces_dataframe(data_df):
             pieces_embeddings = get_all_piece_embeddings(
                 row["image_paths"],
                 row["segm_image_paths"],
-                CLOTHING_PIECES
+                CLOTHING_PIECES,
+                outfit_idx=idx,
+                cache_dir=cache_dir
             )
 
             for piece_type, embedding in pieces_embeddings.items():
@@ -196,7 +219,7 @@ if __name__ == "__main__":
     pieces_df = create_pieces_dataframe(subset)
 
     # Create positive negative pairs 
-    pairs = create_pairs(pieces_df)
+    pairs = create_embedded_pairs(pieces_df)
 
     # Show preview
     print("Total Data Shape: ", data.shape)
@@ -206,6 +229,3 @@ if __name__ == "__main__":
     print("Length of pairs: ", len(pairs))
 
     
-
-
-
