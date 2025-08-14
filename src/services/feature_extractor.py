@@ -165,9 +165,11 @@ class CLIPFeatureExtractor(FeatureExtractor):
     
     def __init__(self, model_name: str = "ViT-B/32"):
         self.logger = get_logger(__name__)
+        self.model_name = model_name
         self.model = None
         self.preprocess = None
-        self.model_name = model_name
+        self.device = None
+        self.feature_dim = None
         self._initialize_model()
     
     def _initialize_model(self):
@@ -176,14 +178,14 @@ class CLIPFeatureExtractor(FeatureExtractor):
             import clip
             import torch
             
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model, self.preprocess = clip.load(self.model_name, device=device)
-            self.device = device
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model, self.preprocess = clip.load(self.model_name, device=self.device)
             
-            # CLIP image features are 512-dimensional for ViT-B/32
-            self.feature_dim = 512
+            if self.device == "cuda":
+                self.model = self.model.half()
             
-            self.logger.info(f"Initialized CLIP {self.model_name} on {device}")
+            self.feature_dim = 512  # ViT-B/32
+            self.logger.info(f"Initialized CLIP {self.model_name} on {self.device}")
             
         except ImportError:
             self.logger.warning("CLIP not available, falling back to simple features")
@@ -202,16 +204,16 @@ class CLIPFeatureExtractor(FeatureExtractor):
             import torch
             from PIL import Image
             
-            # Convert numpy array to PIL Image
-            pil_image = Image.fromarray((image * 255).astype(np.uint8))
+            if image.dtype != np.uint8:
+                image = (image * 255).astype(np.uint8)
+            pil_image = Image.fromarray(image)
             
-            # Preprocess for CLIP
             image_tensor = self.preprocess(pil_image).unsqueeze(0).to(self.device)
             
-            # Extract features
             with torch.no_grad():
                 features = self.model.encode_image(image_tensor)
-                features = features.cpu().numpy().flatten()
+                features = features.squeeze(0).cpu().numpy()
+                features = features / np.linalg.norm(features)  # Normalize
             
             self.logger.debug(f"Extracted CLIP features: {features.shape}")
             return features
@@ -221,5 +223,4 @@ class CLIPFeatureExtractor(FeatureExtractor):
             raise
     
     def get_feature_dimension(self) -> int:
-        """Return the dimension of extracted features."""
         return self.feature_dim
