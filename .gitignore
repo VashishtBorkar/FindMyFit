@@ -1,0 +1,59 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# Conda environments (just in case)
+.conda/
+*.conda
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Python log files
+*.log
+
+# Pytest cache
+.pytest_cache/
+
+# VSCode / IDE settings
+.vscode/
+.idea/
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Data storage folders
+data/items/
+data/features/
+data/metadata.json
+
+# Model checkpoints or large files
+*.h5
+*.pt
+*.pth
+*.ckpt
+*.joblib
+*.pkl
+
+# Temporary files
+*.tmp
+*.swp
+*.bak
+
+# Coverage reports
+htmlcov/
+.coverage
+
+# Ignore node_modules if you ever add JS front-end
+node_modules/
