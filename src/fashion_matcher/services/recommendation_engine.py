@@ -2,6 +2,7 @@ import numpy as np
 from typing import List, Dict, Tuple
 from sklearn.metrics.pairwise import cosine_similarity
 import colorsys
+from PIL import Image
 
 from ..core.interfaces import RecommendationEngine
 from ..core.models import (
@@ -10,6 +11,55 @@ from ..core.models import (
 )
 from ..utils.logging import get_logger
 
+class MLRecommendationEngine(RecommendationEngine):
+    """Machine learning-based recommendation engine."""
+    
+    def __init__(self):
+        self.logger = get_logger(__name__)
+    
+    def calculate_compatibility_score(self, item1: ClothingItem, item2: ClothingItem) -> float:
+        if item1.features is None or item2.features is None:
+            print("Item has no features")
+            return 0.0
+    
+        emb1 = item1.features.reshape(1, -1)
+        emb2 = item2.features.reshape(1, -1)
+
+        print("Embedding 1: \n", emb1)
+        print("Embedding 2: \n", emb2)
+
+        score = cosine_similarity(emb1, emb2)[0][0]
+        # Scale to 0-1
+        score = (score + 1) / 2
+        return float(score)
+
+    def get_recommendations(self, request: RecommendationRequest,
+                            available_items: List[ClothingItem]) -> List[OutfitRecommendation]:
+        """Rank available items by similarity to the target item."""
+        target_item = request.target_item
+
+        scored_items = []
+        for item in available_items:
+            if item.id == target_item.id:
+                continue  # skip the same item
+            if item.features is None:
+                continue  # skip items without features
+            score = self.calculate_compatibility_score(target_item, item)
+            scored_items.append((item, score))
+
+        # Sort descending by score
+        scored_items.sort(key=lambda x: x[1], reverse=True)
+
+        # Take top-N
+        recommendations = [
+            OutfitRecommendation(
+                target_item=target_item,
+                recommended_items=[item],
+                confidence_score=score,
+            )
+            for item, score in scored_items[:request.max_recommendations]
+        ]
+        return recommendations
 
 class RuleBasedRecommendationEngine(RecommendationEngine):
     """Rule-based recommendation engine using fashion compatibility rules."""
@@ -286,49 +336,5 @@ class RuleBasedRecommendationEngine(RecommendationEngine):
         
         return reasoning
 
-class MLRecommendationEngine(RecommendationEngine):
-    """Machine learning-based recommendation engine."""
-    
-    def __init__(self):
-        self.logger = get_logger(__name__)
-    
-    def calculate_compatibility_score(self, item1: ClothingItem, item2: ClothingItem) -> float:
-        """Calculate ML-based compatibility score."""
-        if item1.features is None or item2.features is None:
-            return 0.0
-        
-        emb1 = item1.features
-        emb2 = item2.features
 
-        score = cosine_similarity(emb1, emb2)
-
-        return float(score)
-
-    def get_recommendations(self, request: RecommendationRequest,
-                            available_items: List[ClothingItem]) -> List[OutfitRecommendation]:
-        """Rank available items by similarity to the target item."""
-        target_item = request.target_item
-
-        scored_items = []
-        for item in available_items:
-            if item.id == target_item.id:
-                continue  # skip the same item
-            if item.features is None:
-                continue  # skip items without features
-            score = self.calculate_compatibility_score(target_item, item)
-            scored_items.append((item, score))
-
-        # Sort descending by score
-        scored_items.sort(key=lambda x: x[1], reverse=True)
-
-        # Take top-N
-        recommendations = [
-            OutfitRecommendation(
-                target_item=target_item,
-                recommended_items=[item],
-                confidence_score=score,
-            )
-            for item, score in scored_items[:request.max_recommendations]
-        ]
-        return recommendations
       

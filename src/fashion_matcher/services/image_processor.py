@@ -29,7 +29,7 @@ class OpenCVImageProcessor(ImageProcessor):
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
             # Basic preprocessing
-            image = self._preprocess_image(image)
+            # image = self._preprocess_image(image)
             
             self.logger.debug(f"Successfully loaded image: {image_path}")
             return image
@@ -116,7 +116,6 @@ class OpenCVImageProcessor(ImageProcessor):
         except Exception as e:
             self.logger.error(f"Error resizing image: {str(e)}")
             raise
-
 
 class PILImageProcessor(ImageProcessor):
     """Alternative PIL-based implementation for comparison."""

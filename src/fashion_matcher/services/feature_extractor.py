@@ -5,69 +5,73 @@ import logging
 from ..core.interfaces import FeatureExtractor
 from ..utils.logging import get_logger
 
-
-class SimpleFeatureExtractor(FeatureExtractor):
-    """Simple feature extractor using basic image statistics."""
+class CLIPFeatureExtractor(FeatureExtractor):
+    """CLIP-based feature extractor for fashion items."""
     
-    def __init__(self):
+    def __init__(self, model_name: str = "ViT-B/32"):
         self.logger = get_logger(__name__)
-        self.feature_dim = 64  # Fixed dimension for this simple extractor
+        self.model_name = model_name
+        self.model = None
+        self.preprocess = None
+        self.device = None
+        self.feature_dim = None
+        self._initialize_model()
+    
+    def _initialize_model(self):
+        """Initialize CLIP model."""
+        try:
+            import clip
+            import torch
+            
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model, self.preprocess = clip.load(self.model_name, device=self.device)
+            
+            if self.device == "cuda":
+                self.model = self.model.half()
+            
+            self.feature_dim = 512  # ViT-B/32
+            self.logger.info(f"Initialized CLIP {self.model_name} on {self.device}")
+            
+        except ImportError:
+            self.logger.warning("CLIP not available, falling back to simple features")
+            self.simple_extractor = SimpleFeatureExtractor()
+            self.feature_dim = self.simple_extractor.get_feature_dimension()
+        except Exception as e:
+            self.logger.error(f"Error initializing CLIP: {str(e)}")
+            raise
     
     def extract_features(self, image: np.ndarray) -> np.ndarray:
-        """Extract simple statistical features from image."""
+        """Extract features using CLIP."""
+        if self.model is None:
+            return self.simple_extractor.extract_features(image)
+        
         try:
-            features = []
+            import torch
+            from PIL import Image
             
-            # Color histogram features (RGB channels)
-            for channel in range(3):
-                hist, _ = np.histogram(image[:, :, channel], bins=8, range=(0, 1))
-                hist = hist / np.sum(hist)  # Normalize
-                features.extend(hist)
+            if image.dtype != np.uint8:
+                image = (image * 255).astype(np.uint8)
+            pil_image = Image.fromarray(image)
             
-            # Texture features using local standard deviation
-            gray = np.mean(image, axis=2)
+            image_tensor = self.preprocess(pil_image).unsqueeze(0).to(self.device)
             
-            # Calculate local standard deviations in 4x4 blocks
-            h, w = gray.shape
-            block_size = 4
-            texture_features = []
+            with torch.no_grad():
+                features = self.model.encode_image(image_tensor)
+                features = features.squeeze(0).cpu().numpy()
+                features = features / np.linalg.norm(features)  # Normalize
             
-            for i in range(0, h - block_size + 1, block_size):
-                for j in range(0, w - block_size + 1, block_size):
-                    block = gray[i:i+block_size, j:j+block_size]
-                    texture_features.append(np.std(block))
-            
-            # Pad or truncate to fixed size
-            if len(texture_features) > 40:
-                texture_features = texture_features[:40]
-            else:
-                texture_features.extend([0.0] * (40 - len(texture_features)))
-            
-            features.extend(texture_features)
-            
-            # Ensure fixed dimension
-            if len(features) > self.feature_dim:
-                features = features[:self.feature_dim]
-            else:
-                features.extend([0.0] * (self.feature_dim - len(features)))
-            
-            feature_vector = np.array(features, dtype=np.float32)
-            self.logger.debug(f"Extracted {len(feature_vector)} features")
-            
-            return feature_vector
+            self.logger.debug(f"Extracted CLIP features: {features.shape}")
+            return features
             
         except Exception as e:
-            self.logger.error(f"Error extracting features: {str(e)}")
+            self.logger.error(f"Error extracting CLIP features: {str(e)}")
             raise
     
     def get_feature_dimension(self) -> int:
-        """Return the dimension of extracted features."""
         return self.feature_dim
-
 
 class ResNetFeatureExtractor(FeatureExtractor):
     """ResNet-based feature extractor using pre-trained model."""
-    
     def __init__(self, model_name: str = 'resnet50', use_pretrained: bool = True):
         self.logger = get_logger(__name__)
         self.model = None
@@ -137,7 +141,7 @@ class ResNetFeatureExtractor(FeatureExtractor):
     
     def _preprocess_for_resnet(self, image: np.ndarray) -> 'torch.Tensor':
         """Preprocess image for ResNet input."""
-        # Resize to 224x224 if needed
+        # Resize to 224x224
         if image.shape[:2] != (224, 224):
             import cv2
             image = cv2.resize(image, (224, 224))
@@ -159,68 +163,30 @@ class ResNetFeatureExtractor(FeatureExtractor):
         """Return the dimension of extracted features."""
         return self.feature_dim
 
-
-class CLIPFeatureExtractor(FeatureExtractor):
-    """CLIP-based feature extractor for fashion items."""
+class SimpleFeatureExtractor(FeatureExtractor):
+    """Simple feature extractor using basic image statistics."""
     
-    def __init__(self, model_name: str = "ViT-B/32"):
+    def __init__(self):
         self.logger = get_logger(__name__)
-        self.model_name = model_name
-        self.model = None
-        self.preprocess = None
-        self.device = None
-        self.feature_dim = None
-        self._initialize_model()
-    
-    def _initialize_model(self):
-        """Initialize CLIP model."""
-        try:
-            import clip
-            import torch
-            
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model, self.preprocess = clip.load(self.model_name, device=self.device)
-            
-            if self.device == "cuda":
-                self.model = self.model.half()
-            
-            self.feature_dim = 512  # ViT-B/32
-            self.logger.info(f"Initialized CLIP {self.model_name} on {self.device}")
-            
-        except ImportError:
-            self.logger.warning("CLIP not available, falling back to simple features")
-            self.simple_extractor = SimpleFeatureExtractor()
-            self.feature_dim = self.simple_extractor.get_feature_dimension()
-        except Exception as e:
-            self.logger.error(f"Error initializing CLIP: {str(e)}")
-            raise
-    
+        self.feature_dim = None  # Will be set when extracting features
+
     def extract_features(self, image: np.ndarray) -> np.ndarray:
-        """Extract features using CLIP."""
-        if self.model is None:
-            return self.simple_extractor.extract_features(image)
-        
+        """
+        Convert the image into a 1D vector to use as features.
+        Expects image shape: (H, W, C), e.g., (224, 224, 3)
+        """
         try:
-            import torch
-            from PIL import Image
-            
-            if image.dtype != np.uint8:
-                image = (image * 255).astype(np.uint8)
-            pil_image = Image.fromarray(image)
-            
-            image_tensor = self.preprocess(pil_image).unsqueeze(0).to(self.device)
-            
-            with torch.no_grad():
-                features = self.model.encode_image(image_tensor)
-                features = features.squeeze(0).cpu().numpy()
-                features = features / np.linalg.norm(features)  # Normalize
-            
-            self.logger.debug(f"Extracted CLIP features: {features.shape}")
-            return features
-            
+            feature_vector = image.flatten()
+
+            self.feature_dim = len(feature_vector)
+
+            return feature_vector
+
         except Exception as e:
-            self.logger.error(f"Error extracting CLIP features: {str(e)}")
+            self.logger.error(f"Error extracting features: {str(e)}")
             raise
-    
+
     def get_feature_dimension(self) -> int:
+        if self.feature_dim is None:
+            raise ValueError("Feature dimension not set. Call extract_features first.")
         return self.feature_dim
