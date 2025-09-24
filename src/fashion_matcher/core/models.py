@@ -55,10 +55,8 @@ class ClothingItem:
     id: str
     image_path: Path
     category: ClothingCategory
-    colors: List[Color] = field(default_factory=list)
-    style: Optional[Style] = None
-    season: Optional[Season] = None
-    features: Optional[np.ndarray] = None
+    embedding: Optional[np.ndarray] = None
+    embedding_path: Optional[Path] = None
     metadata: Dict = field(default_factory=dict)
     
     def __post_init__(self):
