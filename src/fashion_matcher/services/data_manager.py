@@ -1,5 +1,6 @@
 import json
 import pickle
+import numpy as np
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import uuid
@@ -14,9 +15,8 @@ class FileBasedDataStorage(DataStorage):
     
     def __init__(self, data_dir: Path = Path("data")):
         self.data_dir = Path(data_dir)
-        self.items_dir = self.data_dir / "items"
-        self.features_dir = self.data_dir / "features"
-        self.metadata_file = self.data_dir / "metadata.json"
+        self.embeddings_dir = self.data_dir / "embeddings"
+        self.metadata_dir = self.data_dir / "metadata"
         
         self.logger = get_logger(__name__)
         self._initialize_storage()
@@ -24,11 +24,8 @@ class FileBasedDataStorage(DataStorage):
     def _initialize_storage(self):
         """Create necessary directories and files."""
         self.data_dir.mkdir(exist_ok=True)
-        self.items_dir.mkdir(exist_ok=True)
-        self.features_dir.mkdir(exist_ok=True)
-        
-        if not self.metadata_file.exists():
-            self._save_metadata({})
+        self.embeddings_dir.mkdir(exist_ok=True)
+        self.metadata_dir.mkdir(exist_ok=True)
         
         self.logger.info(f"Initialized file storage at {self.data_dir}")
     
@@ -36,23 +33,18 @@ class FileBasedDataStorage(DataStorage):
         """Save a clothing item to storage."""
         try:
             # Save item metadata as JSON
+            item_file = self.metadata_dir / f"{item.id}.json"
             item_data = self._item_to_dict(item)
-            item_file = self.items_dir / f"{item.id}.json"
-            
             with open(item_file, 'w') as f:
                 json.dump(item_data, f, indent=2)
             
-            # Save features separately if available
-            if item.features is not None:
-                feature_file = self.features_dir / f"{item.id}.pkl"
-                with open(feature_file, 'wb') as f:
-                    pickle.dump(item.features, f)
-            
-            # Update metadata index
-            self._update_metadata_index(item)
-            
+            # Save embeddings separately if available
+            if item.embedding is not None:
+                embedding_file = self.embeddings_dir / f"{item.id}.npy"
+                if not embedding_file.exists():
+                    np.save(embedding_file, item.embeddings)
+
             self.logger.debug(f"Saved item: {item.id}")
-            
         except Exception as e:
             self.logger.error(f"Error saving item {item.id}: {str(e)}")
             raise
@@ -60,25 +52,20 @@ class FileBasedDataStorage(DataStorage):
     def load_item(self, item_id: str) -> Optional[ClothingItem]:
         """Load a clothing item by ID."""
         try:
-            item_file = self.items_dir / f"{item_id}.json"
-            
+            item_file = self.metadata_dir / f"{item.id}.json"
             if not item_file.exists():
                 return None
             
-            # Load item data
             with open(item_file, 'r') as f:
                 item_data = json.load(f)
             
             item = self._dict_to_item(item_data)
             
-            # Load features if available
-            feature_file = self.features_dir / f"{item_id}.pkl"
-            if feature_file.exists():
-                with open(feature_file, 'rb') as f:
-                    item.features = pickle.load(f)
+            embedding_file = self.embeddings_dir / f"{item_id}.npy"
+            if embedding_file.exists():
+                item.embedding = np.load(embedding_file)
             
             return item
-            
         except Exception as e:
             self.logger.error(f"Error loading item {item_id}: {str(e)}")
             return None
@@ -128,66 +115,19 @@ class FileBasedDataStorage(DataStorage):
             'id': item.id,
             'image_path': str(item.image_path),
             'category': item.category.value,
-            'style': item.style.value if item.style else None,
-            'season': item.season.value if item.season else None,
-            'colors': [
-                {'r': c.r, 'g': c.g, 'b': c.b, 'name': c.name}
-                for c in item.colors
-            ],
             'metadata': item.metadata,
-            'has_features': item.features is not None
+            'has_embedding': item.embedding is not None
         }
     
     def _dict_to_item(self, data: Dict[str, Any]) -> ClothingItem:
         """Convert dictionary to ClothingItem."""
-        colors = [
-            Color(r=c['r'], g=c['g'], b=c['b'], name=c.get('name'))
-            for c in data.get('colors', [])
-        ]
-        
         return ClothingItem(
             id=data['id'],
             image_path=Path(data['image_path']),
             category=ClothingCategory(data['category']),
-            style=Style(data['style']) if data.get('style') else None,
-            season=Season(data['season']) if data.get('season') else None,
-            colors=colors,
-            metadata=data.get('metadata', {})
+            metadata=data.get('metadata', {}),
+            embedding=None  # Loaded separately
         )
-    
-    def _update_metadata_index(self, item: ClothingItem):
-        """Update the metadata index with item information."""
-        try:
-            metadata = self._load_metadata()
-            
-            metadata[item.id] = {
-                'category': item.category.value,
-                'style': item.style.value if item.style else None,
-                'season': item.season.value if item.season else None,
-                'has_features': item.features is not None,
-                'colors_count': len(item.colors)
-            }
-            
-            self._save_metadata(metadata)
-            
-        except Exception as e:
-            self.logger.warning(f"Error updating metadata index: {str(e)}")
-    
-    def _load_metadata(self) -> Dict[str, Any]:
-        """Load metadata index."""
-        try:
-            with open(self.metadata_file, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    
-    def _save_metadata(self, metadata: Dict[str, Any]):
-        """Save metadata index."""
-        try:
-            with open(self.metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
-        except Exception as e:
-            self.logger.error(f"Error saving metadata: {str(e)}")
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get storage statistics."""
@@ -196,9 +136,6 @@ class FileBasedDataStorage(DataStorage):
         stats = {
             'total_items': len(metadata),
             'categories': {},
-            'styles': {},
-            'seasons': {},
-            'items_with_features': 0
         }
         
         for item_data in metadata.values():
@@ -206,20 +143,6 @@ class FileBasedDataStorage(DataStorage):
             category = item_data.get('category')
             if category:
                 stats['categories'][category] = stats['categories'].get(category, 0) + 1
-            
-            # Style stats
-            style = item_data.get('style')
-            if style:
-                stats['styles'][style] = stats['styles'].get(style, 0) + 1
-            
-            # Season stats
-            season = item_data.get('season')
-            if season:
-                stats['seasons'][season] = stats['seasons'].get(season, 0) + 1
-            
-            # Features stats
-            if item_data.get('has_features'):
-                stats['items_with_features'] += 1
         
         return stats
 
@@ -255,12 +178,12 @@ class InMemoryDataStorage(DataStorage):
                 if key == 'category' and item.category != value:
                     match = False
                     break
-                elif key == 'style' and item.style != value:
-                    match = False
-                    break
-                elif key == 'season' and item.season != value:
-                    match = False
-                    break
+                # elif key == 'style' and item.style != value:
+                #     match = False
+                #     break
+                # elif key == 'season' and item.season != value:
+                #     match = False
+                #     break
             
             if match:
                 results.append(item)

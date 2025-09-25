@@ -38,6 +38,7 @@ ehthumbs.db
 data/items/
 data/features/
 data/metadata.json
+embeddings/
 
 # Model checkpoints or large files
 *.h5

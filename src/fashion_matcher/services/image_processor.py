@@ -9,6 +9,40 @@ from ..core.interfaces import ImageProcessor
 from ..core.models import Color
 from ..utils.logging import get_logger
 
+class PILImageProcessor(ImageProcessor):
+    """PIL-based image processor implementation."""
+    
+    def __init__(self, target_size: tuple = (224, 224)):
+        self.target_size = target_size
+        self.logger = get_logger(__name__)
+        
+        try:
+            from PIL import Image, ImageFilter
+            self.Image = Image
+            self.ImageFilter = ImageFilter
+        except ImportError:
+            raise ImportError("PIL/Pillow is required for PILImageProcessor")
+    
+    def load_image(self, image_path: Path) -> np.ndarray:
+        """Load image using PIL."""
+        try:
+            with self.Image.open(image_path) as img:
+                img = img.convert('RGB')
+                image_array = np.array(img)
+            
+            self.logger.debug(f"Successfully loaded image with PIL: {image_path}")
+            return image_array / 255.0  # Normalize
+            
+        except Exception as e:
+            self.logger.error(f"Error loading image {image_path}: {str(e)}")
+            raise
+    
+    def resize_image(self, image: np.ndarray, target_size: tuple) -> np.ndarray:
+        """Resize image using PIL."""
+        pil_image = self.Image.fromarray((image * 255).astype(np.uint8))
+        resized = pil_image.resize(target_size, self.Image.Resampling.LANCZOS)
+        return np.array(resized) / 255.0
+    
 
 class OpenCVImageProcessor(ImageProcessor):
     """OpenCV-based image processor implementation."""
@@ -116,54 +150,3 @@ class OpenCVImageProcessor(ImageProcessor):
         except Exception as e:
             self.logger.error(f"Error resizing image: {str(e)}")
             raise
-
-class PILImageProcessor(ImageProcessor):
-    """Alternative PIL-based implementation for comparison."""
-    
-    def __init__(self, target_size: tuple = (224, 224)):
-        self.target_size = target_size
-        self.logger = get_logger(__name__)
-        
-        # Import PIL only if this implementation is used
-        try:
-            from PIL import Image, ImageFilter
-            self.Image = Image
-            self.ImageFilter = ImageFilter
-        except ImportError:
-            raise ImportError("PIL/Pillow is required for PILImageProcessor")
-    
-    def load_image(self, image_path: Path) -> np.ndarray:
-        """Load image using PIL."""
-        try:
-            with self.Image.open(image_path) as img:
-                img = img.convert('RGB')
-                image_array = np.array(img)
-            
-            self.logger.debug(f"Successfully loaded image with PIL: {image_path}")
-            return image_array / 255.0  # Normalize
-            
-        except Exception as e:
-            self.logger.error(f"Error loading image {image_path}: {str(e)}")
-            raise
-    
-    def extract_colors(self, image: np.ndarray, num_colors: int = 5) -> List[Color]:
-        """Extract colors using PIL's quantize method."""
-        # Convert back to PIL Image
-        pil_image = self.Image.fromarray((image * 255).astype(np.uint8))
-        
-        # Quantize to get dominant colors
-        quantized = pil_image.quantize(colors=num_colors, method=2)
-        palette = quantized.getpalette()
-        
-        colors = []
-        for i in range(num_colors):
-            r, g, b = palette[i*3:(i+1)*3]
-            colors.append(Color(r=r, g=g, b=b))
-        
-        return colors
-    
-    def resize_image(self, image: np.ndarray, target_size: tuple) -> np.ndarray:
-        """Resize image using PIL."""
-        pil_image = self.Image.fromarray((image * 255).astype(np.uint8))
-        resized = pil_image.resize(target_size, self.Image.Resampling.LANCZOS)
-        return np.array(resized) / 255.0

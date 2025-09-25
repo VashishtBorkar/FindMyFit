@@ -41,7 +41,7 @@ class CLIPFeatureExtractor(FeatureExtractor):
             raise
     
     def extract_features(self, image: np.ndarray) -> np.ndarray:
-        """Extract features using CLIP."""
+        """Create embeddings using CLIP"""
         if self.model is None:
             return self.simple_extractor.extract_features(image)
         

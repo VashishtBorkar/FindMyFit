@@ -101,19 +101,15 @@ class FashionMatcher:
                 item_id = str(uuid.uuid4())
             
             image = self.image_processor.load_image(image_path)
-            colors = self.image_processor.extract_colors(image)
-            processed_image = self.image_processor.resize_image(image, (224, 224))
-            features = self.feature_extractor.extract_features(processed_image)
+            resized_image = self.image_processor.resize_image(image, (224, 224))
+            embedding = self.feature_extractor.extract_features(resized_image)
             
             # Create clothing item
             item = ClothingItem(
                 id=item_id,
                 image_path=image_path,
                 category=category,
-                style=style,
-                season=season,
-                colors=colors,
-                features=features,
+                embedding=embedding,
                 metadata=metadata or {}
             )
             
