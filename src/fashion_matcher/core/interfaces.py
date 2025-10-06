@@ -3,7 +3,7 @@ from typing import List, Optional
 import numpy as np
 from pathlib import Path
 
-from .models import ClothingItem, OutfitRecommendation, RecommendationRequest, Color
+from .models import ClothingItem, ClothingRecommendation, OutfitRecommendation, RecommendationRequest, Color
 
 
 class ImageProcessor(ABC):
@@ -39,19 +39,27 @@ class FeatureExtractor(ABC):
         pass
 
 
+class EmebddingGenerator(ABC):
+    """Abstract interface for generating embeddings from image."""
+    
+    @abstractmethod
+    def generate_embedding(self, image_path: str) -> np.ndarray:
+        """Generate embedding for an image."""
+        pass
+
+
 class RecommendationEngine(ABC):
     """Abstract interface for recommendation logic."""
     
     @abstractmethod
-    def get_recommendations(self, request: RecommendationRequest, 
-                          available_items: List[ClothingItem]) -> List[OutfitRecommendation]:
+    def get_recommendations(self, target_item: ClothingItem, max_recommendations: int, 
+                            match_categories: List[str]) -> List[ClothingRecommendation]:
         """Generate outfit recommendations."""
         pass
     
     @abstractmethod
-    def calculate_compatibility_score(self, item1: ClothingItem, 
-                                    item2: ClothingItem) -> float:
-        """Calculate compatibility score between two items."""
+    def calculate_compatibility_score(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
+        """Calculate compatibility score given two embeddings"""
         pass
 
 

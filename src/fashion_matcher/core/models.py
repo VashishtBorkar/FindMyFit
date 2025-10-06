@@ -7,12 +7,26 @@ import numpy as np
 
 class ClothingCategory(Enum):
     """Clothing categories for classification."""
-    TOPS = "tops"
-    BOTTOMS = "bottoms"
-    SHOES = "shoes"
-    DRESSES = "dresses"
+    BAG = "bag"
+    BRACELET = "bracelet"
+    BROOCH = "brooch"
+    DRESS = "dress"
+    EARRING = "earring"
+    EYEWEAR = "eyewear"
+    GLOVES = "gloves"
+    HARIWEAR = "hairwear"
+    HATS = "hats"
+    JUMPSUIT = "jumpsuit"
+    LEGWEAR = "legwear"
+    NECKLACE = "necklace"
+    NECKWEAR = "neckwear"
     OUTERWEAR = "outerwear"
-    ACCESSORIES = "accessories"
+    PANTS = "pants"
+    RINGS = "rings"
+    SHOES = "shoes"
+    SKIRT = "skirt"
+    TOP = "top"
+    WATCHES = "watches"
 
 
 class Style(Enum):
@@ -64,7 +78,18 @@ class ClothingItem:
         if isinstance(self.image_path, str):
             self.image_path = Path(self.image_path)
 
-
+@dataclass
+class ClothingRecommendation:
+    """Represents a recommended outfit combination."""
+    recommended_item: ClothingItem
+    confidence_score: float
+    reasoning: Dict[str, str] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Validate confidence score."""
+        if not 0.0 <= self.confidence_score <= 1.0:
+            raise ValueError("Confidence score must be between 0 and 1")
+        
 @dataclass
 class OutfitRecommendation:
     """Represents a recommended outfit combination."""
@@ -86,4 +111,4 @@ class RecommendationRequest:
     max_recommendations: int = 5
     style_preference: Optional[Style] = None
     season_preference: Optional[Season] = None
-    exclude_categories: List[ClothingCategory] = field(default_factory=list)
+    match_categories: List[ClothingCategory] = field(default_factory=list)
