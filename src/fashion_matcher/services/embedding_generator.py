@@ -73,10 +73,14 @@ class CLIPEmbeddingGenerator(EmebddingGenerator):
 
         if not dir_path.exists():
             raise FileNotFoundError(f"Embedding directory does not exist: {dir_path}")
-
+        
+        save_path = dir_path / f"{image_path.stem}.npy"
+        if save_path.exists():
+            self.logger.debug(f"Embedding already exists, skipping: {save_path}")
+            return save_path
+        
         embedding = self.generate_embedding(image_path)
 
-        save_path = dir_path / f"{image_path.stem}.npy"
         np.save(save_path, embedding)
         self.logger.debug(f"Saved embedding to {save_path}")
 
