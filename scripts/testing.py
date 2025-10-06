@@ -2,49 +2,37 @@ import sys
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from src.fashion_matcher.clothing_recommender import ClothingRecommender
+import logging
+logging.basicConfig(level=logging.INFO)
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
 load_dotenv()
-test_data = os.getenv("TEST_DATA_DIR")
-from fashion_matcher import FashionMatcher
-from fashion_matcher.core.models import ClothingCategory
+test_data = Path(os.getenv("TEST_DATA_DIR"))
+images_dir = Path(os.getenv("IMAGES_DIR"))
+clip_embeddings_dir = Path(os.getenv("CLIP_EMBEDDINGS_DIR"))
+
 
 def main():
-    fm = FashionMatcher(
-        data_dir=Path("data"), 
-        feature_extractor_type="simple",
-        recommendation_engine_type="ml", 
-        storage_type="memory"
+    recommender = ClothingRecommender(
+        recommendation_engine_type='cosine',
+        embeddings_dir=clip_embeddings_dir,
+        images_dir=images_dir
     )
 
-    image_dir = Path(test_data)
-    print(image_dir)
-    items = fm.batch_process_images(
-        image_directory=image_dir,
-        default_category=ClothingCategory.TOPS
-    )
-    
-    if not items:
-        print("No items processed.")
-        return
-
-    target_item = items[0]
-    print(f"Target item: {target_item.image_path.name} ({target_item.category})")
-
-    # Currently Cosine similarity of two images
-    recs = fm.get_recommendations(
-        target_item_id=target_item.id,
-        max_recommendations=3
+    recommendations = recommender.get_recommendations(
+        image_path=Path(test_data) / "black_sweatshirt.png",
+        target_category='outwear',
+        match_categories=['pants'],
+        max_recommendations=5,
     )
     
-    if not recs:
+    if not recommendations:
         print("No recommendations returned. :(")
         return 
-    
-    print("\nRecommendations:")
-    for rec in recs:
-        rec_items = ", ".join([r.image_path.name for r in rec.recommended_items])
-        print(f" - Items: {rec_items}, Score: {rec.confidence_score:.3f}")
 
+    print(f"Total Recommendations: {len(recommendations)}")
+    print("\nRecommendations:")
+    for rec in recommendations:
+        print(f"Image: {rec.recommended_item.image_path}, Score: {rec.confidence_score:.4f}")
 if __name__ == "__main__":
     main()

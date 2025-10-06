@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 
-def setup_logging(level: str = 'INFO', log_file: Optional[Path] = None):
+def setup_logging(level: str = 'DEBUG', log_file: Optional[Path] = None):
     """
     Setup logging configuration for the entire system.
     

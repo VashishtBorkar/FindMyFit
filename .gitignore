@@ -39,6 +39,7 @@ data/items/
 data/features/
 data/metadata.json
 embeddings/
+data/
 
 # Model checkpoints or large files
 *.h5

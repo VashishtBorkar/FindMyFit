@@ -11,7 +11,7 @@ def main():
     
     # Paths
     load_dotenv()
-    image_dir = Path(os.getenv("DATASET_DIR", "../data/images"))
+    image_dir = Path(os.getenv("IMAGES_DIR", "../data/images"))
     embeddings_dir = Path("data/clip_embeddings").resolve()
     embeddings_dir.mkdir(parents=True, exist_ok=True)
 
