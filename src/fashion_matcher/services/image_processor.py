@@ -31,7 +31,7 @@ class PILImageProcessor(ImageProcessor):
                 image_array = np.array(img)
             
             self.logger.debug(f"Successfully loaded image with PIL: {image_path}")
-            return image_array / 255.0  # Normalize
+            return image_array
             
         except Exception as e:
             self.logger.error(f"Error loading image {image_path}: {str(e)}")
@@ -41,11 +41,14 @@ class PILImageProcessor(ImageProcessor):
         """Resize image using PIL."""
         pil_image = self.Image.fromarray((image * 255).astype(np.uint8))
         resized = pil_image.resize(target_size, self.Image.Resampling.LANCZOS)
-        return np.array(resized) / 255.0
-    
+        return np.array(resized)
+
 
 class OpenCVImageProcessor(ImageProcessor):
-    """OpenCV-based image processor implementation."""
+    """
+    OpenCV-based image processor implementation for more advanced preprocessing
+    used for user uploaded images in the future
+    """
     
     def __init__(self, target_size: tuple = (224, 224)):
         self.target_size = target_size
@@ -109,37 +112,6 @@ class OpenCVImageProcessor(ImageProcessor):
             return result
         
         return image
-    
-    def extract_colors(self, image: np.ndarray, num_colors: int = 5) -> List[Color]:
-        """Extract dominant colors using K-means clustering."""
-        try:
-            # Reshape image to be a list of pixels
-            pixels = image.reshape(-1, 3)
-            
-            # Remove black pixels (background)
-            pixels = pixels[~np.all(pixels == 0, axis=1)]
-            
-            if len(pixels) == 0:
-                self.logger.warning("No non-black pixels found in image")
-                return []
-            
-            # Apply K-means clustering
-            kmeans = KMeans(n_clusters=min(num_colors, len(pixels)), random_state=42, n_init=10)
-            kmeans.fit(pixels)
-            
-            # Get cluster centers (dominant colors)
-            colors = []
-            for center in kmeans.cluster_centers_:
-                # Convert back to 0-255 range and create Color object
-                r, g, b = (center * 255).astype(int)
-                colors.append(Color(r=r, g=g, b=b))
-            
-            self.logger.debug(f"Extracted {len(colors)} dominant colors")
-            return colors
-            
-        except Exception as e:
-            self.logger.error(f"Error extracting colors: {str(e)}")
-            return []
     
     def resize_image(self, image: np.ndarray, target_size: tuple) -> np.ndarray:
         """Resize image to target dimensions."""
