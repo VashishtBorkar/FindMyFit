@@ -8,7 +8,7 @@ from src.fashion_matcher.core.interfaces import RecommendationEngine
 from src.fashion_matcher.services.recommendation_engine import (
     CosineSimilarityRecommendationEngine, MetricLearningRecommendationEngine, BiLSTMRecommendationEngine
 )
-from src.fashion_matcher.utils.logging import get_logger
+from src.utils.logging import get_logger
 
 
 class ClothingRecommender:

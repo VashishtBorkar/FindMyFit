@@ -2,8 +2,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 from src.fashion_matcher.services.embedding_generator import CLIPEmbeddingGenerator
-from src.fashion_matcher.utils.logging import get_logger, setup_logging  # if you have a logger helper
-
+from src.utils.logging import get_logger
 
 def main():
     # setup_logging(level='DEBUG')
