@@ -5,8 +5,8 @@ from PIL import Image
 from pathlib import Path
 import torch
 
-from ..core.interfaces import EmebddingGenerator
-from ..utils.logging import get_logger
+from src.fashion_matcher.core.interfaces import EmebddingGenerator
+from src.utils.logging import get_logger
 
 class CLIPEmbeddingGenerator(EmebddingGenerator):
     """CLIP-based feature extractor for fashion items."""
