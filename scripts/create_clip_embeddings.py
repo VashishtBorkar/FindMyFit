@@ -2,11 +2,12 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 from src.fashion_matcher.services.embedding_generator import CLIPEmbeddingGenerator
-from src.utils.logging import get_logger
+from src.utils.logging import get_logger, setup_logging
 
 def main():
     # setup_logging(level='DEBUG')
     logger = get_logger(__name__)
+    setup_logging(level='INFO')
     
     # Paths
     load_dotenv()
@@ -24,23 +25,35 @@ def main():
 
     # Iterate through all images
     processed_count = 0
+    skipped_count = 0
+    
     for category_dir in Path(image_dir).iterdir():
         if not category_dir.is_dir():
             continue
         category_embeddings_dir = embeddings_dir / category_dir.name
         category_embeddings_dir.mkdir(parents=True, exist_ok=True)
         for clothing_image in category_dir.iterdir():
-            # if clothing_image.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
-            #     continue
+            if not clothing_image.is_file():
+                skipped_count += 1
+                continue
+
+            embedding_file = category_embeddings_dir / f"{clothing_image.stem}.npy"
+            if embedding_file.exists():
+                skipped_count += 1
+                continue
             try:
-                if clothing_image.is_file():
-                    processed_count += 1
-                    generator.generate_and_save_embedding(clothing_image, category_embeddings_dir)
+                generator.generate_and_save_embedding(clothing_image, category_embeddings_dir)
+                processed_count += 1
+
+                if processed_count % 100 == 0:
+                    logger.info(f"Processed {processed_count} images, skipped {skipped_count} images.")
+
             except Exception as e:
                 logger.error(f"Failed to process {clothing_image}: {e}")
 
     logger.info("Finished generating embeddings.")
     logger.info(f"Found {processed_count} images in {image_dir}")
+    logger.info(f"Skipped {skipped_count} images that already had embeddings.")
 
 if __name__ == "__main__":
     main()
