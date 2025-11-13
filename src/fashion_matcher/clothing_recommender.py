@@ -35,12 +35,15 @@ class ClothingRecommender:
         """Initialize the recommendation engine."""
         if engine_type == 'cosine':
             return CosineSimilarityRecommendationEngine(embeddings_dir=self.embeddings_dir, images_dir=self.images_dir)
+        
         elif engine_type == 'metric':
             self.logger.warning(f"Metric model under construction")
-            return MetricLearningRecommendationEngine()
+            return MetricLearningRecommendationEngine(embeddings_dir=self.embeddings_dir, images_dir=self.images_dir)
+        
         elif engine_type == 'bilstm':
             self.logger.warning(f"BiLSTM model under construction")
             return BiLSTMRecommendationEngine()
+        
         else:
             self.logger.warning(f"Unknown engine type: {engine_type}, using cosine similarity")
             return CosineSimilarityRecommendationEngine()
@@ -101,10 +104,9 @@ class ClothingRecommender:
     @staticmethod
     def validate_category(category: str) -> str:
         allowed_categories = {
-            "tops", "skirts", "pants", "outwear", "dresses",
-            "jumpsuits", "shoes", "bags", "earrings", "necklaces",
-            "rings", "bracelets", "watches", "hats", "eyewear",
-            "gloves", "legwear", "neckwear", "hairwear", "brooch"
+            "bag", "bracelet", "brooch", "dress", "earrings", "eyewear", "gloves",
+            "hairwear", "hats", "jumpsuit", "legwear", "necklace", "neckwear", "outwear",
+            "pants", "rings", "shoes", "skirt", "top", "watches"
         }
         cat = category.lower()
         if cat not in allowed_categories:
