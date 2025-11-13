@@ -1,6 +1,6 @@
 import torch
+from torch.nn.functional import cosine_similarity, normalize
 import torch.nn as nn
-from sklearn.metrics.pairwise import cosine_similarity
 
 
 class FashionCompatibilityModel(nn.Module):
@@ -8,30 +8,19 @@ class FashionCompatibilityModel(nn.Module):
     Metric learning model that projects fashion items into an embedding space
     where compatible items are close together and incompatible items are far apart.
     """    
-    def __init__(self, embedding_dim: int, hidden_dims: list = [512, 256, 128], output_dim: int = 128):
+    def __init__(self, embedding_dim: int, hidden_dim: int = 256, output_dim: int = 128):
         """
         Args:
             embedding_dim: Dimension of input embeddings
             hidden_dims: List of hidden layer dimensions
         """
         super().__init__()
-        
-        # Compatibility prediction layers
-        layers = []
-        prev_dim = embedding_dim
-        for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(prev_dim, hidden_dim),
-                nn.ReLU(),
-                nn.BatchNorm1d(hidden_dim),
-                nn.Dropout(0.3)
-            ])
-            prev_dim = hidden_dim
-        
-        # Final projection to metric space
-        layers.append(nn.Linear(prev_dim, 1))
-        
-        self.embedding_net = nn.Sequential(*layers)
+        # Light transformation (no batchnorm, no dropout)
+        self.projector = nn.Sequential(
+            nn.Linear(embedding_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
     
     def forward(self, x):
         """
@@ -43,7 +32,9 @@ class FashionCompatibilityModel(nn.Module):
         Returns:
             Projected embeddings (batch_size, output_dim)
         """
-        return self.embedding_net(x)
+        x = self.projector(x)
+        x = normalize(x, p=2, dim=1)  # L2 normalize
+        return x
     
     def embed_pair(self, emb_a, emb_b):
         """
@@ -56,9 +47,7 @@ class FashionCompatibilityModel(nn.Module):
         Returns:
             Tuple of embedded items
         """
-        feat_a = self.forward(emb_a)
-        feat_b = self.forward(emb_b)
-        return feat_a, feat_b
+        return self.forward(emb_a), self.forward(emb_b)
 
     def compute_distance(self, emb_a, emb_b, distance_type='euclidean'):
         """
@@ -75,7 +64,7 @@ class FashionCompatibilityModel(nn.Module):
         feat_a, feat_b = self.embed_pair(emb_a, emb_b)
         
         if distance_type == 'euclidean':
-            distance = torch.sqrt(torch.sum((feat_a - feat_b) ** 2, dim=1) + 1e-8)
+            distance = torch.norm(feat_a - feat_b, dim=1)
         elif distance_type == 'cosine':
             distance = 1 - cosine_similarity(feat_a, feat_b)
         else:
@@ -97,9 +86,6 @@ class FashionCompatibilityModel(nn.Module):
             is_compatible: Boolean prediction
         """
         distance = self.compute_distance(emb_a, emb_b, distance_type='euclidean')
-        
-        # Convert distance to similarity score (0-1 range)
-        # Lower distance = higher compatibility
         compatibility_score = torch.exp(-distance)
         
         is_compatible = distance < threshold
