@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from dotenv import load_dotenv
 from src.utils.logging import get_logger, setup_logging
-from src.data_manager.embedding_manager import EmbeddingManager 
+from src.data_manager.embedding_manager import load_embeddings 
 import os
  
 def main():
@@ -15,8 +15,7 @@ def main():
     load_dotenv()
     embeddings_dir = Path("data/clip_embeddings").resolve()
     embeddings_dir.mkdir(parents=True, exist_ok=True)
-    embedding_manager = EmbeddingManager(embeddings_dir)
-    embeddings, category_index = embedding_manager.load_embeddings()
+    embeddings, category_index = load_embeddings(embeddings_dir, )
 
     outfit_file = Path(os.getenv("COMPATIBILE_OUTFITS_FILE", "data/outfits.txt"))
     output_pickle = Path("data/compatibility_pairs.pkl").resolve()

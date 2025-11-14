@@ -5,54 +5,48 @@ from typing import Dict, Optional
 from src.utils.logging import get_logger
 from collections import defaultdict
 
-class EmbeddingManager:
+def load_embeddings(
+    embeddings_dir: str | Path,
+    pickle_path: Optional[str | Path] = None,
+    force_reload: bool = False
+):    
+    """Load embeddings either from pickle or from disk."""
+    logger = get_logger(__name__)
+    embeddings_dir = Path(embeddings_dir)
+    pickle_path = Path(pickle_path) if pickle_path else embeddings_dir / "embeddings_cache.pkl"
 
-    def __init__(self, embeddings_dir: str, pickle_path: Optional[str] = None):
-        self.embeddings_dir = Path(embeddings_dir)
-        self.pickle_path = Path(pickle_path) if pickle_path else self.embeddings_dir / "embeddings_cache.pkl"
-        self.embeddings: Dict[str, Dict[str, np.ndarray]] = {}
-        self.logger = get_logger(__name__)
+    if pickle_path.exists() and not force_reload:
+        logger.info(f"Loading embeddings from cache: {pickle_path}")
+        with open(pickle_path, "rb") as f:
+            embeddings = pickle.load(f)
+        return embeddings, _build_category_index(embeddings)
+    
+    embeddings = {}
+    logger.info("Loading embeddings from disk...")
 
-    def load_embeddings(self, force_reload: bool = False): # add typed return
-        """Load embeddings either from pickle or from disk."""
-        if self.pickle_path.exists() and not force_reload:
-            self.logger.info(f"Loading embeddings from cache: {self.pickle_path}")
-            with open(self.pickle_path, "rb") as f:
-                self.embeddings = pickle.load(f)
-            return self.embeddings, self._build_category_index()
+    for category_dir in embeddings_dir.iterdir():
+        if not category_dir.is_dir():
+            continue
+        category_name = category_dir.name
+        for emb_file in category_dir.glob("*.npy"):
+            item_id = emb_file.stem
+            embeddings[item_id] = {
+                "category" : category_name,
+                "embedding" : np.load(emb_file),
+            }
 
-        self.logger.info("Loading embeddings from disk...")
-        self.embeddings.clear()
+        logger.info(f"Loaded {len(embeddings)} embeddings")
 
-        for category_dir in self.embeddings_dir.iterdir():
-            if not category_dir.is_dir():
-                continue
-            category_name = category_dir.name
-            # self.embeddings[category_name] = {}
+    # Save to pickle
+    with open(pickle_path, "wb") as f:
+        pickle.dump(embeddings, f, protocol=pickle.HIGHEST_PROTOCOL)
+    logger.info(f"Saved embeddings to pickle: {pickle_path}")
 
-            for emb_file in category_dir.glob("*.npy"):
-                item_id = emb_file.stem
-                self.embeddings[item_id] = {
-                    "category" : category_name,
-                    "embedding" : np.load(emb_file),
-                }
+    return embeddings, _build_category_index(embeddings)
 
-            self.logger.info(f"Loaded {len(self.embeddings)} embeddings")
-
-        # Save to pickle
-        with open(self.pickle_path, "wb") as f:
-            pickle.dump(self.embeddings, f, protocol=pickle.HIGHEST_PROTOCOL)
-        self.logger.info(f"Saved embeddings to pickle: {self.pickle_path}")
-
-        return self.embeddings, self._build_category_index()
-
-    def _build_category_index(self) -> Dict[str, set]:
-        """Build an index of categories to item IDs."""
-        category_index = defaultdict(set)
-        for item_id, data in self.embeddings.items():
-            category_index[data["category"]].add(item_id)
-        return category_index
-
-    def get_embedding(self, category: str, item_id: str) -> Optional[np.ndarray]:
-        """Retrieve an embedding for a specific item."""
-        return self.embeddings.get(item_id)
+def _build_category_index(embeddings) -> Dict[str, set]:
+    """Build an index of categories to item IDs."""
+    category_index = defaultdict(set)
+    for item_id, data in embeddings.items():
+        category_index[data["category"]].add(item_id)
+    return category_index
