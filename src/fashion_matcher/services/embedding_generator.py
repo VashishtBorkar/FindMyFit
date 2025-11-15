@@ -28,9 +28,6 @@ class CLIPEmbeddingGenerator(EmebddingGenerator):
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.model, self.preprocess = clip.load(self.model_name, device=self.device)
             
-            if self.device == "cuda":
-                self.model = self.model.half()
-            
             self.embedding_dim = 512  # ViT-B/32
             self.logger.info(f"Initialized CLIP {self.model_name} on {self.device}")
             

@@ -11,36 +11,19 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from src.models.metric_learning.model import FashionCompatibilityModel
+from src.models.metric_learning.optuna_search import get_hyperparameters
 from src.utils.logging import get_logger, setup_logging
 
 
-def load_trained_model(checkpoint_path: str, embedding_dim: int = 512, 
-                       output_dim: int = 128, device: str = 'cuda'):
-    """
-    Load the trained metric learning model.
-    
-    Args:
-        checkpoint_path: Path to model checkpoint
-        embedding_dim: CLIP embedding dimension
-        output_dim: Metric space dimension
-        device: Device to load model on
-    
-    Returns:
-        Loaded model in eval mode
-    """
-    device = torch.device(device if torch.cuda.is_available() else 'cpu')
-    
-    # Initialize model
+def load_trained_model(checkpoint_path: str, embedding_dim: int = 512):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
     model = FashionCompatibilityModel(
         embedding_dim=embedding_dim,
-        hidden_dims=[512, 256, 128],
-        output_dim=output_dim
-    )
-    
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model = model.to(device)
+        hidden_dim=checkpoint["hidden_dim"],
+        output_dim=checkpoint["output_dim"]
+    ).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     
     return model, device
@@ -155,13 +138,13 @@ def main():
     logger.info(f"CLIP embeddings directory: {clip_embeddings_dir}")
     logger.info(f"Metric embeddings directory: {metric_embeddings_dir}")
     logger.info(f"Model checkpoint: {checkpoint_path}")
-    
+
+
     # Load model
     logger.info("Loading trained model...")
     model, device = load_trained_model(
+        embedding_dim=512,
         checkpoint_path=str(checkpoint_path),
-        embedding_dim=512,  # CLIP ViT-B/32 dimension
-        output_dim=128      # Metric space dimension
     )
     logger.info(f"Model loaded on {device}")
     
@@ -176,7 +159,7 @@ def main():
         force_reload=True
     )
     
-    logger.info("✓ Finished generating metric embeddings!")
+    logger.info("Finished generating metric embeddings!")
     logger.info(f"Processed: {processed_count} items")
     logger.info(f"Skipped: {skipped_count} items (already existed)")
     logger.info(f"Saved to: {metric_embeddings_dir}")

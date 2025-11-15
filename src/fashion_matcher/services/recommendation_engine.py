@@ -99,11 +99,19 @@ class MetricLearningRecommendationEngine(RecommendationEngine):
         self.embeddings, self.category_index = load_embeddings(embeddings_dir, embeddings_pickle) 
         
         self.images_dir = Path(images_dir) if images_dir else None
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.device = device
-        checkpoint = torch.load('checkpoints/metric_learning/best_model.pt', map_location=device)
-        self.model = FashionCompatibilityModel(embedding_dim=512)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        checkpoint_path = "checkpoints/metric_learning/best_model.pt"
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        
+        self.model = FashionCompatibilityModel(
+            embedding_dim=512,
+            hidden_dim=checkpoint["hidden_dim"],
+            output_dim=checkpoint["output_dim"]
+        ).to(self.device)
+
+        # Load weights
+        self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.eval()
         
     
@@ -121,11 +129,11 @@ class MetricLearningRecommendationEngine(RecommendationEngine):
         if not target_item.image_path.exists():
             raise ValueError(f"No image found at {target_item.image_path}")
         
-
-        
         # Compute embedding for target image
         target_clip = self.clip_embeddings_generator.generate_embedding(str(target_item.image_path))
-        target_emb = self.model(torch.tensor(target_clip, device=self.device).unsqueeze(0)).detach().cpu().numpy()
+        target_emb = self.model(
+            torch.tensor(target_clip, device=self.device).unsqueeze(0).float()
+        ).detach().cpu().numpy().squeeze(0)
 
         # Score all items in match categories
         self.logger.info(f"Target Item ID: {target_item.id}, Category: {target_item.category}")

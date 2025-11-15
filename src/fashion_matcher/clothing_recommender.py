@@ -12,7 +12,7 @@ from src.utils.logging import get_logger
 
 
 class ClothingRecommender:
-    def __init__(self, recommendation_engine_type: str = 'cosine', embeddings_dir: str = "data/clip_embeddings", 
+    def __init__(self, recommendation_engine_type: str, embeddings_dir: str, 
                  images_dir: str = "data/images"):
         """
         Initialize Clothing Recommender
@@ -37,7 +37,7 @@ class ClothingRecommender:
             return CosineSimilarityRecommendationEngine(embeddings_dir=self.embeddings_dir, images_dir=self.images_dir)
         
         elif engine_type == 'metric':
-            self.logger.warning(f"Metric model under construction")
+            # self.logger.warning(f"Metric model under construction")
             return MetricLearningRecommendationEngine(embeddings_dir=self.embeddings_dir, images_dir=self.images_dir)
         
         elif engine_type == 'bilstm':
