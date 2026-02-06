@@ -42,6 +42,8 @@ embeddings/
 data/
 
 # Model checkpoints or large files
+checkpoints/
+*.db
 *.h5
 *.pt
 *.pth
