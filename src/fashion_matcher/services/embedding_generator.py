@@ -7,6 +7,8 @@ import torch
 
 from src.fashion_matcher.core.interfaces import EmebddingGenerator
 from src.utils.logging import get_logger
+from src.database.database import SessionLocal
+from src.database.models import Image as ImageModel, Embedding, Model
 
 class CLIPEmbeddingGenerator(EmebddingGenerator):
     """CLIP-based feature extractor for fashion items."""
@@ -59,29 +61,103 @@ class CLIPEmbeddingGenerator(EmebddingGenerator):
             self.logger.error(f"Error generating CLIP embedding for {image_path}: {str(e)}")
             raise
 
-    def generate_and_save_embedding(self, image_path: Path, dir_path: Path) -> Path:
-        """Generate embedding and save to embeddings_dir (as .npy)."""
-        image_path = Path(image_path)
-        dir_path = Path(dir_path)
-        # dir_path.mkdir(parents=True, exist_ok=True)
+    def _get_or_create_model(self, session, name: str, version: str, embedding_dim: int) -> int:
+        """Get existing model ID or create new model record."""
+        model = session.query(Model).filter_by(
+            name=name, 
+            version=version
+        ).one_or_none()
+        
+        if model:
+            return model.id
+        
+        model = Model(
+            name=name,
+            version=version,
+            embedding_dim=embedding_dim
+        )
+        session.add(model)
+        session.commit()
+        return model.id
 
+    def generate_and_save_embedding(
+        self, 
+        image_path: Path, 
+        image_id: str = None,
+        model_name: str = "clip",
+        model_version: str = "vit-b32",
+        embedding_dim: int = 512
+    ) -> np.ndarray:
+        """
+        Generate embedding and save to database.
+        
+        Args:
+            image_path: Path to the image file
+            image_id: ID to use for the image (defaults to filename stem)
+            model_name: Name of the embedding model
+            model_version: Version of the embedding model
+            embedding_dim: Dimension of the embedding vector
+            
+        Returns:
+            The generated embedding as numpy array
+        """
+        image_path = Path(image_path)
+        
         if not image_path.exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
-
-        if not dir_path.exists():
-            raise FileNotFoundError(f"Embedding directory does not exist: {dir_path}")
         
-        save_path = dir_path / f"{image_path.stem}.npy"
-        if save_path.exists():
-            self.logger.debug(f"Embedding already exists, skipping: {save_path}")
-            return save_path
+        # Use filename stem as ID if not provided
+        if image_id is None:
+            image_id = image_path.stem
         
-        embedding = self.generate_embedding(image_path)
-
-        np.save(save_path, embedding)
-        self.logger.debug(f"Saved embedding to {save_path}")
-
-        return save_path
+        session = SessionLocal()
+        
+        try:
+            # Get or create the model record
+            model_id = self._get_or_create_model(
+                session, model_name, model_version, embedding_dim
+            )
+            
+            # Check if embedding already exists
+            existing_embedding = session.query(Embedding).filter_by(
+                image_id=image_id,
+                model_id=model_id
+            ).one_or_none()
+            
+            if existing_embedding:
+                self.logger.debug(f"Embedding already exists for {image_id}, skipping")
+                # Return existing embedding as numpy array
+                return np.frombuffer(
+                    existing_embedding.vector, 
+                    dtype=np.float32
+                )
+            
+            # Generate new embedding
+            embedding = self.generate_embedding(image_path)
+            
+            # Convert to bytes for storage
+            embedding_bytes = embedding.astype(np.float32).tobytes()
+            
+            # Save to database
+            db_embedding = Embedding(
+                image_id=image_id,
+                model_id=model_id,
+                vector=embedding_bytes,
+                dim=embedding_dim,
+                dtype="float32"
+            )
+            session.add(db_embedding)
+            session.commit()
+            
+            self.logger.debug(f"Saved embedding to database for {image_id}")
+            return embedding
+            
+        except Exception as e:
+            session.rollback()
+            self.logger.error(f"Error saving embedding for {image_id}: {str(e)}")
+            raise
+        finally:
+            session.close()
 
     def get_embedding_dimension(self) -> int:
         return self.embedding_dim
