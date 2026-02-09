@@ -11,16 +11,12 @@ logging.basicConfig(level=logging.INFO)
 load_dotenv()
 test_data = Path(os.getenv("TEST_DATA_DIR"))
 images_dir = Path(os.getenv("IMAGES_DIR"))
-clip_embeddings_dir = Path(os.getenv("CLIP_EMBEDDINGS_DIR"))
-metric_embeddings_dir = Path(os.getenv("METRIC_EMBEDDINGS_DIR"))
-
 
 def main():
     max_recommendations = 10
 
     recommender = ClothingRecommender(
         recommendation_engine_type='metric',
-        embeddings_dir=metric_embeddings_dir,
         images_dir=images_dir
     )
 

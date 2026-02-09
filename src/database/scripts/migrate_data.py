@@ -12,7 +12,7 @@ load_dotenv()
 images_dir = Path(os.getenv("IMAGES_DIR", Path("data/images")))
 clip_emb_dir = Path(os.getenv("CLIP_EMBEDDINGS_DIR", Path("data/clip_embeddings")))
 metric_emb_dir = Path(os.getenv("METRIC_EMBEDDINGS_DIR", Path("data/metric_embeddings")))
-BATCH_SIZE = 100  # how often to commit to db
+BATCH_SIZE = 1000  # how often to commit to db
 
 
 def compute_image_hash(path: Path) -> str:
@@ -87,8 +87,6 @@ def migrate_to_db(limit: int = None):
     total_metric = 0
 
     for category_dir in images_dir.iterdir():
-        if not category_dir.name.startswith("pants"):
-            continue
         if not category_dir.is_dir():
             continue
         
