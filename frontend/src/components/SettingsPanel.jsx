@@ -4,8 +4,6 @@ export default function SettingsPanel({
   setTargetCategory,
   matchCategories,
   onToggleMatchCategory,
-  maxRecommendations,
-  setMaxRecommendations,
   onGenerate,
   loading,
 }) {
@@ -16,7 +14,7 @@ export default function SettingsPanel({
           Customize Recommendations
         </h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Fine-tune the matching criteria before generating results.
+          Select the uploaded item category and choose which categories to match with.
         </p>
       </div>
 
@@ -63,20 +61,11 @@ export default function SettingsPanel({
             })}
           </div>
         </div>
+      </div>
 
-        <div className="rounded-3xl border border-black/5 bg-white/80 p-5">
-          <label className="mb-3 block text-sm font-semibold text-zinc-800">
-            Number of Results: {maxRecommendations}
-          </label>
-          <input
-            type="range"
-            min="1"
-            max="20"
-            value={maxRecommendations}
-            onChange={(e) => setMaxRecommendations(Number(e.target.value))}
-            className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-[#eadfcf]"
-          />
-        </div>
+      <div className="mt-5 rounded-2xl border border-[#b5935a]/20 bg-[#fcf8f1] px-4 py-3 text-sm text-zinc-600">
+        We’ll fetch a larger recommendation pool and balance the results evenly across
+        your selected categories.
       </div>
 
       <button

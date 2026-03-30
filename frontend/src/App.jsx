@@ -1,9 +1,45 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import HeroSection from "./components/HeroSection";
 import UploadSection from "./components/UploadSection";
 import SettingsPanel from "./components/SettingsPanel";
 import RecommendationsGrid from "./components/RecommendationsGrid";
+import OutfitView from "./components/OutfitView";
 import { fetchCategories, generateRecommendations } from "./api";
+
+const DEFAULT_FETCH_COUNT = 50;
+
+function groupRecommendationsByCategory(recommendations) {
+  return recommendations.reduce((acc, item) => {
+    const category = item.category;
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(item);
+    return acc;
+  }, {});
+}
+
+function interleaveRecommendations(grouped, selectedCategories) {
+  const categoryQueues = selectedCategories
+    .filter((category) => grouped[category]?.length)
+    .map((category) => ({
+      category,
+      items: [...grouped[category]],
+    }));
+
+  const result = [];
+
+  let added = true;
+  while (added) {
+    added = false;
+    for (const queue of categoryQueues) {
+      if (queue.items.length > 0) {
+        result.push(queue.items.shift());
+        added = true;
+      }
+    }
+  }
+
+  return result;
+}
 
 export default function App() {
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -11,11 +47,11 @@ export default function App() {
   const [categories, setCategories] = useState([]);
   const [targetCategory, setTargetCategory] = useState("");
   const [matchCategories, setMatchCategories] = useState([]);
-  const [maxRecommendations, setMaxRecommendations] = useState(6);
   const [recommendations, setRecommendations] = useState(null);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [error, setError] = useState("");
+  const [viewMode, setViewMode] = useState("grid");
 
   useEffect(() => {
     async function loadCategories() {
@@ -48,6 +84,7 @@ export default function App() {
     setUploadedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setRecommendations(null);
+    setViewMode("grid");
     setError("");
   };
 
@@ -80,16 +117,29 @@ export default function App() {
         imageFile: uploadedFile,
         targetCategory,
         matchCategories,
-        maxRecommendations,
+        maxRecommendations: DEFAULT_FETCH_COUNT,
       });
 
       setRecommendations(data.recommendations);
+      setViewMode("grid");
     } catch (err) {
       setError(err.message || "Failed to generate recommendations");
     } finally {
       setLoadingRecommendations(false);
     }
   };
+
+  const groupedRecommendations = useMemo(() => {
+    if (!recommendations) return {};
+    return groupRecommendationsByCategory(recommendations);
+  }, [recommendations]);
+
+  const balancedRecommendations = useMemo(() => {
+    if (!recommendations) return [];
+    return interleaveRecommendations(groupedRecommendations, matchCategories);
+  }, [groupedRecommendations, matchCategories, recommendations]);
+
+  const hasResults = recommendations && recommendations.length > 0;
 
   return (
     <div className="min-h-screen bg-[#f8f6f1] text-zinc-900">
@@ -109,8 +159,6 @@ export default function App() {
               setTargetCategory={setTargetCategory}
               matchCategories={matchCategories}
               onToggleMatchCategory={toggleMatchCategory}
-              maxRecommendations={maxRecommendations}
-              setMaxRecommendations={setMaxRecommendations}
               onGenerate={handleGenerate}
               loading={loadingRecommendations}
             />
@@ -139,8 +187,53 @@ export default function App() {
               )}
           </div>
 
-          {recommendations && recommendations.length > 0 && (
-            <RecommendationsGrid recommendations={recommendations} />
+          {hasResults && (
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-semibold text-zinc-900">
+                  Your Recommendations
+                </h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Browse balanced results or preview them together in an outfit layout.
+                </p>
+              </div>
+
+              <div className="inline-flex rounded-2xl border border-black/10 bg-white p-1 shadow-sm">
+                <button
+                  onClick={() => setViewMode("grid")}
+                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                    viewMode === "grid"
+                      ? "bg-zinc-900 text-white"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  Grid View
+                </button>
+                <button
+                  onClick={() => setViewMode("outfit")}
+                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                    viewMode === "outfit"
+                      ? "bg-zinc-900 text-white"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  Outfit View
+                </button>
+              </div>
+            </div>
+          )}
+
+          {hasResults && viewMode === "grid" && (
+            <RecommendationsGrid recommendations={balancedRecommendations} />
+          )}
+
+          {hasResults && viewMode === "outfit" && (
+            <OutfitView
+              uploadedImage={previewUrl}
+              targetCategory={targetCategory}
+              groupedRecommendations={groupedRecommendations}
+              matchCategories={matchCategories}
+            />
           )}
         </main>
       </div>
