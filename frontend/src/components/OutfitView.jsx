@@ -2,48 +2,31 @@ import { useEffect, useMemo, useState } from "react";
 
 const CATEGORY_SLOT_MAP = {
   hats: "headwear",
-  hat: "headwear",
-  beanie: "headwear",
-  cap: "headwear",
-  headwear: "headwear",
+  hairwear: "headwear",
 
-  tops: "upper",
   top: "upper",
-  shirt: "upper",
-  blouse: "upper",
-  sweater: "upper",
-  hoodie: "upper",
 
-  outerwear: "outerwear",
-  jacket: "outerwear",
-  coat: "outerwear",
+  outwear: "outerwear",
 
   pants: "lower",
-  bottoms: "lower",
-  bottom: "lower",
   skirt: "lower",
-  skirts: "lower",
-  jeans: "lower",
-  trousers: "lower",
+  legwear: "lower",
 
   shoes: "footwear",
-  sneakers: "footwear",
-  boots: "footwear",
-  heels: "footwear",
-  footwear: "footwear",
 
-  glasses: "accessory",
-  earrings: "accessory",
-  earring: "accessory",
-  scarf: "accessory",
-  scarves: "accessory",
-  necklace: "accessory",
-  jewelry: "accessory",
   bag: "accessory",
-  bags: "accessory",
-  purse: "accessory",
-  accessory: "accessory",
-  accessories: "accessory",
+  bracelet: "accessory",
+  brooch: "accessory",
+  earrings: "accessory",
+  eyewear: "accessory",
+  gloves: "accessory",
+  necklace: "accessory",
+  neckwear: "accessory",
+  rings: "accessory",
+  watches: "accessory",
+
+  dress: "accessory",
+  jumpsuit: "accessory",
 };
 
 function normalizeCategory(category) {

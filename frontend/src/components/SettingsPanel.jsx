@@ -26,10 +26,18 @@ export default function SettingsPanel({
           <select
             value={targetCategory}
             onChange={(e) => setTargetCategory(e.target.value)}
-            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-[#b5935a]/60"
+            className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none transition focus:border-[#b5935a]/60 ${
+              targetCategory
+                ? "border-black/10 bg-white text-zinc-900"
+                : "border-black/10 bg-white text-zinc-400"
+            }`}
           >
+            <option value="" disabled>
+              Select the category of your uploaded item
+            </option>
+
             {categories.map((category) => (
-              <option key={category} value={category}>
+              <option key={category} value={category} className="text-zinc-900">
                 {category}
               </option>
             ))}
@@ -61,11 +69,6 @@ export default function SettingsPanel({
             })}
           </div>
         </div>
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-[#b5935a]/20 bg-[#fcf8f1] px-4 py-3 text-sm text-zinc-600">
-        We’ll fetch a larger recommendation pool and balance the results evenly across
-        your selected categories.
       </div>
 
       <button

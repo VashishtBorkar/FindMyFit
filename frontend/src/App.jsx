@@ -61,15 +61,8 @@ export default function App() {
         const cats = data.categories || [];
         setCategories(cats);
 
-        if (cats.length > 0) {
-          setTargetCategory(cats[0]);
-
-          if (cats.includes("pants") && cats.includes("shoes")) {
-            setMatchCategories(["pants", "shoes"]);
-          } else {
-            setMatchCategories(cats.slice(0, 2));
-          }
-        }
+        setTargetCategory("");
+        setMatchCategories([]);
       } catch (err) {
         setError(err.message || "Failed to load categories");
       } finally {
@@ -85,6 +78,8 @@ export default function App() {
     setPreviewUrl(URL.createObjectURL(file));
     setRecommendations(null);
     setViewMode("grid");
+    setTargetCategory("");
+    setMatchCategories([]);
     setError("");
   };
 

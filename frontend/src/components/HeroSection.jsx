@@ -10,8 +10,7 @@ export default function HeroSection() {
       </h1>
 
       <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-zinc-600 sm:text-lg">
-        Upload a clothing item and receive refined, personalized outfit
-        recommendations tailored by your recommendation engine.
+        Upload a clothing item and receive recommendations and inspiration to make your next outfit
       </p>
     </section>
   );
