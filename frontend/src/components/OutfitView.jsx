@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 const CATEGORY_SLOT_MAP = {
   hats: "headwear",
@@ -230,16 +230,6 @@ export default function OutfitView({
     lower: 0,
     footwear: 0,
   });
-
-  useEffect(() => {
-    setSelectedIndexes({
-      headwear: 0,
-      upper: 0,
-      outerwear: 0,
-      lower: 0,
-      footwear: 0,
-    });
-  }, [slots]);
 
   const getItemForSlot = (slotName) => {
     const slot = slots[slotName];

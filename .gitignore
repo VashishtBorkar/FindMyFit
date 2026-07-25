@@ -1,47 +1,33 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Virtual environments
+# Environments and secrets
 venv/
 env/
 .venv/
 .env/
 .env
-
-# Conda environments (just in case)
+.env.local
+frontend/.env.local
 .conda/
 *.conda
 
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
-
-# Python log files
-*.log
-
-# Pytest cache
-.pytest_cache/
-
-# VSCode / IDE settings
+# IDE and OS
 .vscode/
 .idea/
-
-# MacOS
 .DS_Store
-
-# Windows
 Thumbs.db
 ehthumbs.db
+.ipynb_checkpoints/
 
-# Data storage folders
-data/items/
-data/features/
-data/metadata.json
-embeddings/
+# Local data and model artifacts
 data/
-
-# Model checkpoints or large files
+embeddings/
 checkpoints/
 *.db
 *.h5
@@ -51,14 +37,11 @@ checkpoints/
 *.joblib
 *.pkl
 
-# Temporary files
+# Logs, temporary files, and builds
+*.log
 *.tmp
 *.swp
 *.bak
-
-# Coverage reports
-htmlcov/
-.coverage
-
-# Ignore node_modules if you ever add JS front-end
+build/
+dist/
 node_modules/

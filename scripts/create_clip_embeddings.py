@@ -1,59 +1,47 @@
-from pathlib import Path
-import os
-from dotenv import load_dotenv
-from src.fashion_matcher.services.embedding_generator import CLIPEmbeddingGenerator
-from src.utils.logging import get_logger, setup_logging
+"""Generate portable CLIP .npy files for the configured image catalog."""
 
-def main():
-    # setup_logging(level='DEBUG')
-    logger = get_logger(__name__)
-    setup_logging(level='INFO')
-    
-    # Paths
-    load_dotenv()
-    image_dir = Path(os.getenv("IMAGES_DIR", "../data/images"))
-    embeddings_dir = Path("data/clip_embeddings").resolve()
-    embeddings_dir.mkdir(parents=True, exist_ok=True)
+import logging
 
-    if not image_dir.exists():
-        raise FileNotFoundError(f"Image directory not found: {image_dir}")
-    if not embeddings_dir.exists():
-        raise FileNotFoundError(f"Embedding directory not found: {embeddings_dir}")
+import numpy as np
 
-    # Initialize embedding generator
-    generator = CLIPEmbeddingGenerator(model_name="ViT-B/32")
+from findmyfit.config import Settings
+from findmyfit.embeddings.clip import ClipEmbedder
 
-    # Iterate through all images
-    processed_count = 0
-    skipped_count = 0
-    
-    for category_dir in Path(image_dir).iterdir():
+
+LOGGER = logging.getLogger(__name__)
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    settings = Settings.from_env()
+    if not settings.images_dir.is_dir():
+        raise FileNotFoundError("Configured image directory does not exist")
+
+    settings.clip_embeddings_dir.mkdir(parents=True, exist_ok=True)
+    embedder = ClipEmbedder(settings.clip_model_name)
+    processed = 0
+    skipped = 0
+
+    for category_dir in settings.images_dir.iterdir():
         if not category_dir.is_dir():
             continue
-        category_embeddings_dir = embeddings_dir / category_dir.name
-        category_embeddings_dir.mkdir(parents=True, exist_ok=True)
-        for clothing_image in category_dir.iterdir():
-            if not clothing_image.is_file():
-                skipped_count += 1
+        output_dir = settings.clip_embeddings_dir / category_dir.name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for image_path in category_dir.iterdir():
+            if not image_path.is_file():
                 continue
-
-            embedding_file = category_embeddings_dir / f"{clothing_image.stem}.npy"
-            if embedding_file.exists():
-                skipped_count += 1
+            output_path = output_dir / f"{image_path.stem}.npy"
+            if output_path.exists():
+                skipped += 1
                 continue
             try:
-                generator.generate_and_save_embedding(clothing_image, category_embeddings_dir)
-                processed_count += 1
+                np.save(output_path, embedder.embed(image_path))
+                processed += 1
+            except Exception:
+                LOGGER.exception("Failed to embed %s", image_path.name)
 
-                if processed_count % 100 == 0:
-                    logger.info(f"Processed {processed_count} images, skipped {skipped_count} images.")
+    LOGGER.info("Generated %d embeddings; skipped %d existing files", processed, skipped)
 
-            except Exception as e:
-                logger.error(f"Failed to process {clothing_image}: {e}")
-
-    logger.info("Finished generating embeddings.")
-    logger.info(f"Found {processed_count} images in {image_dir}")
-    logger.info(f"Skipped {skipped_count} images that already had embeddings.")
 
 if __name__ == "__main__":
     main()

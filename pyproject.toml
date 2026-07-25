@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "findmyfit"
+version = "0.1.0"
+description = "CLIP and metric-learning fashion recommendations"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "Pillow>=10",
+    "pydantic-settings>=2.12",
+    "SQLAlchemy>=2",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",
+    "uvicorn[standard]>=0.27",
+]
+ml = [
+    "torch>=2",
+    "openai-clip @ git+https://github.com/openai/CLIP.git",
+]
+streamlit = [
+    "streamlit>=1.30",
+]
+training = [
+    "optuna>=3.5",
+    "scikit-learn>=1.3",
+    "torch>=2",
+    "tqdm>=4.66",
+]
+dev = [
+    "httpx>=0.27",
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+findmyfit = "findmyfit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["findmyfit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

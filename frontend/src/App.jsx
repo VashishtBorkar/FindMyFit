@@ -6,7 +6,7 @@ import RecommendationsGrid from "./components/RecommendationsGrid";
 import OutfitView from "./components/OutfitView";
 import { fetchCategories, generateRecommendations } from "./api";
 
-const DEFAULT_FETCH_COUNT = 50;
+const DEFAULT_FETCH_COUNT = 20;
 
 function groupRecommendationsByCategory(recommendations) {
   return recommendations.reduce((acc, item) => {
