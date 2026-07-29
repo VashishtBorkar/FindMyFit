@@ -6,13 +6,13 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
     UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
-
 
 Base = declarative_base()
 
@@ -26,6 +26,7 @@ class Image(Base):
     hash = Column(String, nullable=True)
 
     embeddings = relationship("Embedding", back_populates="image")
+    __table_args__ = (Index("ix_images_category", "category"),)
 
 
 class Model(Base):
@@ -35,6 +36,7 @@ class Model(Base):
     name = Column(String, nullable=False)
     version = Column(String, nullable=False)
     embedding_dim = Column(Integer, nullable=False)
+    artifact_fingerprint = Column(String, nullable=True)
     description = Column(String, nullable=True)
 
     embeddings = relationship("Embedding", back_populates="model")
@@ -58,4 +60,5 @@ class Embedding(Base):
     model = relationship("Model", back_populates="embeddings")
     __table_args__ = (
         UniqueConstraint("image_id", "model_id", name="uix_image_model"),
+        Index("ix_embeddings_model_id", "model_id"),
     )

@@ -28,9 +28,33 @@ class ClothingRecommendation:
 
 
 @dataclass(frozen=True)
-class CatalogEmbedding:
+class CatalogVector:
+    embedding_id: int
     item_id: str
     category: str
     image_key: str
     image_hash: str | None
+    model_name: str
+    model_version: str
+    artifact_fingerprint: str
+    model_dimension: int
     vector: np.ndarray
+
+
+@dataclass(frozen=True)
+class CatalogItemRecord:
+    embedding_id: int
+    item_id: str
+    category: str
+    image_key: str
+    image_hash: str | None
+
+
+@dataclass(frozen=True)
+class VectorSearchHit:
+    embedding_id: int
+    item_id: str
+    category: str
+    image_key: str
+    image_hash: str | None
+    raw_value: float

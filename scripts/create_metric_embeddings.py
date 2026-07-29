@@ -1,107 +1,124 @@
-"""Project configured CLIP embeddings into the trained metric space."""
+"""Project SQLite CLIP vectors into metric space and persist them to SQLite."""
 
 from __future__ import annotations
 
 import argparse
 import logging
-from pathlib import Path
 
 import numpy as np
-import torch
-from tqdm import tqdm
 
 from findmyfit.config import Settings
-from findmyfit.models.metric import FashionCompatibilityModel
-
+from findmyfit.db.embedding_repository import SqliteEmbeddingRepository
+from findmyfit.db.session import create_session_factory
+from findmyfit.embeddings.fingerprints import metric_artifact_fingerprint
+from findmyfit.embeddings.metric_projector import MetricProjector
+from findmyfit.storage.local_images import LocalImageStore
 
 LOGGER = logging.getLogger(__name__)
 
 
-def load_trained_model(checkpoint_path: Path, embedding_dim: int = 512):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model = FashionCompatibilityModel(
-        embedding_dim=embedding_dim,
-        hidden_dim=checkpoint["hidden_dim"],
-        output_dim=checkpoint["output_dim"],
-    ).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    return model, device
-
-
 def generate_metric_embeddings(
-    clip_embeddings_dir: Path,
-    metric_embeddings_dir: Path,
-    model: torch.nn.Module,
-    device: torch.device,
+    repository: SqliteEmbeddingRepository,
+    projector: MetricProjector,
     *,
-    batch_size: int = 64,
-    force_reload: bool = False,
-) -> tuple[int, int]:
-    metric_embeddings_dir.mkdir(parents=True, exist_ok=True)
-    processed = 0
-    skipped = 0
+    clip_model_name: str,
+    clip_model_version: str,
+    metric_model_id: int,
+    force: bool = False,
+    batch_size: int = 256,
+    limit: int | None = None,
+) -> dict[str, int]:
+    counts = {"created": 0, "updated": 0, "skipped": 0}
+    batch = []
+    considered = 0
 
-    for category_dir in clip_embeddings_dir.iterdir():
-        if not category_dir.is_dir():
-            continue
-        output_dir = metric_embeddings_dir / category_dir.name
-        output_dir.mkdir(parents=True, exist_ok=True)
-        embedding_files = list(category_dir.glob("*.npy"))
-        LOGGER.info("Processing %s (%d items)", category_dir.name, len(embedding_files))
+    def project_pending() -> None:
+        if not batch:
+            return
+        projected = projector.project_batch(
+            np.stack([record.vector for record in batch])
+        )
+        for record, vector in zip(batch, projected):
+            result = repository.upsert_embedding(
+                model_id=metric_model_id,
+                item_id=record.item_id,
+                category=record.category,
+                image_key=record.image_key,
+                image_hash=record.image_hash,
+                vector=vector,
+                force=force,
+            )
+            counts[result] += 1
+        batch.clear()
 
-        for start in tqdm(
-            range(0, len(embedding_files), batch_size),
-            desc=f"Processing {category_dir.name}",
+    for record in repository.iter_vectors(
+        model_name=clip_model_name,
+        model_version=clip_model_version,
+        batch_size=batch_size,
+    ):
+        if limit is not None and considered >= limit:
+            break
+        considered += 1
+        if (
+            not force
+            and repository.has_embedding(
+                model_id=metric_model_id,
+                item_id=record.item_id,
+            )
         ):
-            input_vectors = []
-            output_paths = []
-            for source in embedding_files[start : start + batch_size]:
-                destination = output_dir / source.name
-                if destination.exists() and not force_reload:
-                    skipped += 1
-                    continue
-                try:
-                    input_vectors.append(np.load(source))
-                    output_paths.append(destination)
-                except Exception:
-                    LOGGER.exception("Unable to load %s", source.name)
-
-            if not input_vectors:
-                continue
-            with torch.no_grad():
-                inputs = torch.as_tensor(
-                    np.asarray(input_vectors), dtype=torch.float32, device=device
-                )
-                output_vectors = model(inputs).cpu().numpy()
-            for vector, destination in zip(output_vectors, output_paths):
-                np.save(destination, vector)
-                processed += 1
-    return processed, skipped
+            counts["skipped"] += 1
+            continue
+        batch.append(record)
+        if len(batch) >= batch_size:
+            project_pending()
+    project_pending()
+    LOGGER.info("Metric generation summary: %s", counts)
+    return counts
 
 
-def main(force_reload: bool = False) -> None:
+def main(
+    *,
+    force: bool = False,
+    batch_size: int = 256,
+    limit: int | None = None,
+) -> None:
     logging.basicConfig(level=logging.INFO)
     settings = Settings.from_env()
-    if not settings.clip_embeddings_dir.is_dir():
-        raise FileNotFoundError("Configured CLIP embedding directory does not exist")
-    if not settings.metric_checkpoint_path.is_file():
-        raise FileNotFoundError("Configured metric checkpoint does not exist")
-
-    model, device = load_trained_model(settings.metric_checkpoint_path)
-    processed, skipped = generate_metric_embeddings(
-        settings.clip_embeddings_dir,
-        settings.metric_embeddings_dir,
-        model,
-        device,
-        force_reload=force_reload,
+    projector = MetricProjector(settings.metric_checkpoint_path)
+    repository = SqliteEmbeddingRepository(
+        create_session_factory(settings.database_url),
+        LocalImageStore(settings.images_dir),
     )
-    LOGGER.info("Generated %d metric embeddings; skipped %d", processed, skipped)
+    metric_model_id = repository.ensure_model(
+        name=settings.metric_model_name,
+        version=settings.metric_model_version,
+        dimension=projector.output_dim,
+        artifact_fingerprint=metric_artifact_fingerprint(
+            settings.metric_checkpoint_path,
+            model_version=settings.metric_model_version,
+            clip_model_version=settings.clip_model_version,
+        ),
+    )
+    generate_metric_embeddings(
+        repository,
+        projector,
+        clip_model_name=settings.clip_catalog_model_name,
+        clip_model_version=settings.clip_model_version,
+        metric_model_id=metric_model_id,
+        force=force,
+        batch_size=batch_size,
+        limit=limit,
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--limit", type=int)
     arguments = parser.parse_args()
-    main(arguments.force)
+    main(
+        force=arguments.force,
+        batch_size=arguments.batch_size,
+        limit=arguments.limit,
+    )

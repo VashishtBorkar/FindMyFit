@@ -41,9 +41,13 @@ class MetricProjector:
         self.output_dim = int(checkpoint["output_dim"])
 
     def project(self, clip_embedding: np.ndarray) -> np.ndarray:
+        return self.project_batch(np.asarray([clip_embedding], dtype=np.float32))[0]
+
+    def project_batch(self, clip_embeddings: np.ndarray) -> np.ndarray:
         with torch.no_grad():
             tensor = torch.as_tensor(
-                clip_embedding, dtype=torch.float32, device=self.device
-            ).unsqueeze(0)
-            return self.model(tensor).squeeze(0).cpu().numpy()
-
+                np.asarray(clip_embeddings),
+                dtype=torch.float32,
+                device=self.device,
+            )
+            return self.model(tensor).cpu().numpy().astype(np.float32, copy=False)

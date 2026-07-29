@@ -8,40 +8,31 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from findmyfit.db.embedding_repository import SqliteEmbeddingRepository
 
 LOGGER = logging.getLogger(__name__)
 Pair = tuple[str, str, int]
 
 
 def load_embeddings(
-    embeddings_dir: str | Path,
-    pickle_path: str | Path | None = None,
-    force_reload: bool = False,
+    repository: SqliteEmbeddingRepository,
+    *,
+    model_name: str,
+    model_version: str,
 ) -> tuple[dict, dict[str, set[str]]]:
-    directory = Path(embeddings_dir)
-    cache = Path(pickle_path) if pickle_path else directory / "embeddings_cache.pkl"
-    if cache.exists() and not force_reload:
-        with cache.open("rb") as source:
-            embeddings = pickle.load(source)
-        return embeddings, build_category_index(embeddings)
-
-    embeddings = {}
-    for category_dir in directory.iterdir():
-        if not category_dir.is_dir():
-            continue
-        for embedding_file in category_dir.glob("*.npy"):
-            embeddings[embedding_file.stem] = {
-                "category": category_dir.name,
-                "embedding": np.load(embedding_file),
-            }
-
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    with cache.open("wb") as destination:
-        pickle.dump(embeddings, destination, protocol=pickle.HIGHEST_PROTOCOL)
+    embeddings = {
+        record.item_id: {
+            "category": record.category,
+            "embedding": record.vector.copy(),
+        }
+        for record in repository.iter_vectors(
+            model_name=model_name,
+            model_version=model_version,
+        )
+    }
     return embeddings, build_category_index(embeddings)
 
 

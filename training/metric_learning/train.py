@@ -11,12 +11,14 @@ from torch import optim
 from torch.utils.data import DataLoader, random_split
 
 from findmyfit.config import Settings
+from findmyfit.db.embedding_repository import SqliteEmbeddingRepository
+from findmyfit.db.session import create_session_factory
 from findmyfit.models.metric import FashionCompatibilityModel
+from findmyfit.storage.local_images import LocalImageStore
 from training.metric_learning.data import PairDataset, load_embeddings, load_pairs
 from training.metric_learning.loss import ContrastiveLoss
 from training.metric_learning.trainer import Trainer
 from training.metric_learning.tune import run_optimization_study
-
 
 EMBEDDING_DIM = 512
 
@@ -31,7 +33,15 @@ def split_dataset(dataset, train_ratio=0.8, val_ratio=0.1):
 
 def main() -> None:
     settings = Settings.from_env()
-    embeddings, _ = load_embeddings(settings.clip_embeddings_dir)
+    repository = SqliteEmbeddingRepository(
+        create_session_factory(settings.database_url),
+        LocalImageStore(settings.images_dir),
+    )
+    embeddings, _ = load_embeddings(
+        repository,
+        model_name=settings.clip_catalog_model_name,
+        model_version=settings.clip_model_version,
+    )
     pairs = load_pairs(
         embeddings,
         settings.compatibility_outfits_file,
