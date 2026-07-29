@@ -42,6 +42,13 @@ The runtime package is separated into domain models, embedding inference, SQLite
 retrieval, recommenders, database setup, and local image storage. Importing a module
 does not load CLIP, read the catalog, or mutate the filesystem.
 
+SQLite stores the catalog's actual CLIP and metric vectors as binary blobs. The
+per-item `.npy` files shown below are optional offline intermediates used by the
+current generation and training scripts; request-time recommendations do not read
+them. The planned ML cleanup will load CLIP training features from SQLite, or from
+one consolidated derived artifact, so the project no longer depends on hundreds of
+thousands of small embedding files.
+
 ## Local artifact layout
 
 Large artifacts are intentionally ignored by Git. Relative paths in `.env` are
@@ -159,7 +166,8 @@ pytest
 ## Deferred improvements
 
 - FAISS-backed vector retrieval
-- training split leakage and stronger evaluation metrics
+- SQLite-backed or consolidated training features instead of per-item `.npy` files
+- training split leakage, sampling correctness, and stronger evaluation metrics
 - category-balanced retrieval and diversity
 - score calibration and recommendation explanations
 - frontend component restructuring

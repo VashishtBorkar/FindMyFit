@@ -55,11 +55,12 @@ def test_recommendation_contract_does_not_expose_local_paths(tmp_path: Path):
     with TestClient(app) as client:
         response = client.post(
             "/recommend",
-            files={"image": ("target.png", _png_bytes(), "image/png")},
-            data=[
-                ("target_category", "top"),
-                ("match_categories", "shoes"),
-                ("max_recommendations", "5"),
+            files=[
+                ("image", ("target.png", _png_bytes(), "image/png")),
+                ("target_category", (None, "top")),
+                ("match_categories", (None, "shoes")),
+                ("match_categories", (None, "pants")),
+                ("max_recommendations", (None, "5")),
             ],
         )
 
@@ -84,11 +85,11 @@ def test_invalid_upload_type_is_rejected(tmp_path: Path):
     with TestClient(create_app(settings, recommender_factory=FakeRecommender)) as client:
         response = client.post(
             "/recommend",
-            files={"image": ("target.txt", b"not an image", "text/plain")},
-            data=[
-                ("target_category", "top"),
-                ("match_categories", "shoes"),
-                ("max_recommendations", "5"),
+            files=[
+                ("image", ("target.txt", b"not an image", "text/plain")),
+                ("target_category", (None, "top")),
+                ("match_categories", (None, "shoes")),
+                ("max_recommendations", (None, "5")),
             ],
         )
     assert response.status_code == 415

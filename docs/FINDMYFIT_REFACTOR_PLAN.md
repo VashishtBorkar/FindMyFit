@@ -212,6 +212,50 @@ Recommendation:
 - Use image hash plus model version to avoid recomputing embeddings unnecessarily.
 - Regenerate embeddings through an explicit reindex command when the model version, checkpoint, preprocessing, or source image hash changes.
 
+### ML cleanup data-source decision
+
+The current local SQLite catalog stores the actual CLIP and metric vectors as
+binary blobs. It does not point to the per-item `.npy` files. Runtime
+recommendations load the selected model's catalog vectors from SQLite, while
+image rows contain portable keys that are resolved beneath the configured
+external `IMAGES_DIR`.
+
+The individual CLIP and metric `.npy` files are historical intermediate
+artifacts in the offline pipeline:
+
+- CLIP generation writes one `.npy` file per image.
+- Metric training reads the CLIP `.npy` files so it does not rerun CLIP during
+  every epoch.
+- Metric generation projects those CLIP files through the trained checkpoint
+  and writes metric `.npy` files.
+- The legacy database importer reads both sets of files and copies their vectors
+  into SQLite.
+
+The ML cleanup should remove this per-item file dependency:
+
+- Treat the versioned vectors in SQLite as the canonical local source for
+  existing catalog embeddings.
+- Load CLIP training features from SQLite in batches, or generate one
+  consolidated derived training artifact such as an `.npz` or memory-mapped
+  array if profiling shows that SQLite is too slow.
+- Keep compatibility labels and item/outfit identifiers separate from vector
+  storage so train, validation, and test splits can be created before pair
+  materialization.
+- Write newly projected metric vectors directly to the configured catalog or
+  vector index in batches, validating vector dimensions against checkpoint
+  metadata.
+- Build FAISS indexes from the canonical catalog vectors rather than requiring
+  the per-item `.npy` directories.
+- Keep an explicit export command for interoperability or debugging; exported
+  `.npy` files are reproducible derivatives, not source-of-truth artifacts.
+- Continue using image hashes plus model and preprocessing versions to decide
+  when a catalog vector must be regenerated.
+
+Do not delete the existing CLIP files until the SQLite-backed training loader or
+export path has been implemented and verified. Metric `.npy` files are not
+needed by training and are redundant once their vectors are present in the
+catalog.
+
 ## 7. Refactor Roadmap
 
 Phase 1: Documentation and safety baseline
@@ -257,6 +301,22 @@ Phase 6: Frontend contract cleanup
 - Create typed-ish frontend API adapter shape.
 - Move recommendation grouping/category-slot logic behind clearer backend response fields or shared constants.
 - Keep UI polish secondary to stable workflow.
+
+Phase 7: ML correctness and artifact cleanup
+
+- Replace the per-item `.npy` training dependency with a SQLite-backed loader or
+  a consolidated, reproducible training artifact.
+- Split by outfit or item group before generating pairs to prevent leakage
+  across train, validation, and test datasets.
+- Make positive and negative sampling, symmetric-pair handling, and random seeds
+  explicit.
+- Add retrieval-oriented evaluation metrics and select decision thresholds from
+  validation data.
+- Record model architecture, preprocessing, embedding version, and evaluation
+  results in checkpoint metadata.
+- Retrain and version the model before regenerating metric catalog vectors.
+- Add FAISS only after the corrected exact-retrieval baseline is covered by
+  parity tests.
 
 ## 8. Codex Task Breakdown
 

@@ -27,7 +27,7 @@ ehthumbs.db
 
 # Local data and model artifacts
 data/
-embeddings/
+/embeddings/
 checkpoints/
 *.db
 *.h5

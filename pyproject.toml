@@ -23,7 +23,7 @@ api = [
 ]
 ml = [
     "torch>=2",
-    "openai-clip @ git+https://github.com/openai/CLIP.git",
+    "clip @ git+https://github.com/openai/CLIP.git",
 ]
 streamlit = [
     "streamlit>=1.30",
