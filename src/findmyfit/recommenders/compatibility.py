@@ -8,8 +8,8 @@ import numpy as np
 
 from findmyfit.core.models import ClothingItem, ClothingRecommendation
 from findmyfit.embeddings.clip import ClipEmbedder
-from findmyfit.recommenders.common import rank_catalog_candidates
-from findmyfit.retrieval.sqlite_catalog import SqliteEmbeddingCatalog
+from findmyfit.recommenders.common import recommendations_from_hits
+from findmyfit.retrieval.base import VectorSearch
 from findmyfit.storage.local_images import LocalImageStore
 
 if TYPE_CHECKING:
@@ -21,17 +21,17 @@ class CompatibilityRecommender:
         self,
         embedder: ClipEmbedder,
         projector: MetricProjector,
-        catalog: SqliteEmbeddingCatalog,
+        search: VectorSearch,
         image_store: LocalImageStore,
     ):
         self.embedder = embedder
         self.projector = projector
-        self.catalog = catalog
+        self.search = search
         self.image_store = image_store
 
     @staticmethod
-    def calculate_score(embedding_a: np.ndarray, embedding_b: np.ndarray) -> float:
-        distance = np.linalg.norm(embedding_a - embedding_b)
+    def score_from_raw(raw_value: float) -> float:
+        distance = np.sqrt(max(raw_value, 0.0))
         return float(1.0 / (1.0 + distance))
 
     def recommend(
@@ -42,12 +42,14 @@ class CompatibilityRecommender:
     ) -> list[ClothingRecommendation]:
         clip_embedding = self.embedder.embed(target_item.image_path)
         target_embedding = self.projector.project(clip_embedding)
-        return rank_catalog_candidates(
-            target_item=target_item,
-            target_embedding=target_embedding,
-            match_categories=match_categories,
-            max_recommendations=max_recommendations,
-            catalog=self.catalog,
+        hits = self.search.search(
+            target_embedding,
+            match_categories,
+            max_recommendations,
+            exclude_item_id=target_item.id,
+        )
+        return recommendations_from_hits(
+            hits,
             image_store=self.image_store,
-            scorer=self.calculate_score,
+            score_from_raw=self.score_from_raw,
         )

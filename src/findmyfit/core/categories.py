@@ -2,7 +2,6 @@
 
 from findmyfit.errors import InvalidCategoryError
 
-
 ALLOWED_CATEGORIES = frozenset(
     {
         "bag",

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 from findmyfit.core.models import ClothingItem, ClothingRecommendation
 from findmyfit.embeddings.clip import ClipEmbedder
-from findmyfit.recommenders.common import rank_catalog_candidates
-from findmyfit.retrieval.sqlite_catalog import SqliteEmbeddingCatalog
+from findmyfit.recommenders.common import recommendations_from_hits
+from findmyfit.retrieval.base import VectorSearch
 from findmyfit.storage.local_images import LocalImageStore
 
 
@@ -15,18 +13,16 @@ class SimilarityRecommender:
     def __init__(
         self,
         embedder: ClipEmbedder,
-        catalog: SqliteEmbeddingCatalog,
+        search: VectorSearch,
         image_store: LocalImageStore,
     ):
         self.embedder = embedder
-        self.catalog = catalog
+        self.search = search
         self.image_store = image_store
 
     @staticmethod
-    def calculate_score(embedding_a: np.ndarray, embedding_b: np.ndarray) -> float:
-        denominator = np.linalg.norm(embedding_a) * np.linalg.norm(embedding_b)
-        cosine = 0.0 if denominator == 0 else float(np.dot(embedding_a, embedding_b) / denominator)
-        return (cosine + 1.0) / 2.0
+    def score_from_raw(raw_value: float) -> float:
+        return min(1.0, max(0.0, (raw_value + 1.0) / 2.0))
 
     def recommend(
         self,
@@ -35,12 +31,14 @@ class SimilarityRecommender:
         max_recommendations: int,
     ) -> list[ClothingRecommendation]:
         target_embedding = self.embedder.embed(target_item.image_path)
-        return rank_catalog_candidates(
-            target_item=target_item,
-            target_embedding=target_embedding,
-            match_categories=match_categories,
-            max_recommendations=max_recommendations,
-            catalog=self.catalog,
+        hits = self.search.search(
+            target_embedding,
+            match_categories,
+            max_recommendations,
+            exclude_item_id=target_item.id,
+        )
+        return recommendations_from_hits(
+            hits,
             image_store=self.image_store,
-            scorer=self.calculate_score,
+            score_from_raw=self.score_from_raw,
         )

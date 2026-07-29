@@ -360,7 +360,9 @@ Task: Add vector index abstraction
 
 Goal: Prepare for FAISS/Chroma/pgvector without committing to one immediately.
 
-Prompt: "Add a `VectorIndex` interface and an in-memory/SQLite-scan implementation that preserves current results. Do not add new dependencies."
+Status: Superseded. No speculative public `VectorIndex` abstraction was added.
+The concrete FAISS implementation introduced the small internal `VectorSearch`
+protocol only when a second retrieval backend existed.
 
 Task: Add local FAISS or Chroma retrieval
 
@@ -392,3 +394,40 @@ Prompt: "Replace stale tests with focused tests for category validation, recomme
 - Do you want the trained metric model treated as the main recommender, with CLIP cosine as fallback/debug mode?
 - Should the frontend receive balanced per-category results from the backend, or keep balancing in React?
 - Should the old BiLSTM/outfit-generation path be removed, documented as future work, or rebuilt later?
+
+## 11. SQLite-Native and Exact-FAISS Implementation
+
+The storage and retrieval cleanup is now intentionally local-first:
+
+- SQLite is the canonical store for image metadata, model metadata, CLIP vectors,
+  and metric vectors.
+- CLIP generation writes directly to SQLite and skips current rows before model
+  inference. Changed image content invalidates every embedding for that image.
+- Metric generation streams CLIP vectors from SQLite, projects only missing rows
+  in batches, and upserts results into SQLite.
+- Metric-learning data loading reads CLIP vectors from SQLite. Pair generation,
+  splitting, loss, and training behavior remain unchanged in this phase.
+- Per-item `.npy` files are legacy import inputs only. They are never required by
+  the API, current generation scripts, metric generation, or training loader.
+- Exact category-partitioned FAISS indexes are rebuildable derivatives of SQLite.
+  CLIP uses inner product on normalized vectors; metric retrieval uses squared L2
+  with the existing distance-to-score conversion preserved.
+- `RETRIEVAL_BACKEND=sqlite` retains the Python linear scan as an explicit recovery
+  and benchmark path. Missing or stale FAISS files never trigger silent fallback.
+
+This resolves the earlier question about whether generation and training require
+embedding directories: they no longer do. Images remain in the configured external
+`IMAGES_DIR`; only relative image keys are stored in SQLite.
+
+Legacy `.npy` directories must not be deleted until the SQLite catalog audit,
+SQLite-backed training load, FAISS build/audit, recommendation parity checks, and
+real benchmarks all pass. Removal is a manual disk-cleanup checkpoint, not a
+migration side effect.
+
+Still deferred:
+
+- train/validation/test leakage and pair-sampling corrections;
+- model retraining and checkpoint-version changes;
+- approximate FAISS indexes and recall tradeoffs;
+- calibrated scores, diversity, and category balancing;
+- Postgres/pgvector or cloud deployment architecture.

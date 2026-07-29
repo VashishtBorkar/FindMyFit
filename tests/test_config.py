@@ -10,10 +10,14 @@ def test_settings_resolve_relative_paths_from_project_root(tmp_path: Path):
         database_url="sqlite:///data/catalog.db",
         images_dir=Path("catalog/images"),
         metric_checkpoint_path=Path("models/model.pt"),
+        faiss_index_dir=Path("indexes"),
+        retrieval_backend="sqlite",
     )
 
     assert settings.images_dir == (tmp_path / "catalog/images").resolve()
     assert settings.metric_checkpoint_path == (tmp_path / "models/model.pt").resolve()
+    assert settings.faiss_index_dir == (tmp_path / "indexes").resolve()
+    assert settings.retrieval_backend == "sqlite"
     assert settings.database_url == f"sqlite:///{(tmp_path / 'data/catalog.db').as_posix()}"
 
 

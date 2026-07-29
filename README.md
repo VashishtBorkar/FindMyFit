@@ -13,7 +13,7 @@ metric-projection model.
 uploaded image
     -> CLIP embedding
     -> optional metric projection
-    -> SQLite catalog embedding scan
+    -> exact category-partitioned FAISS search
     -> ranking and hash deduplication
     -> API response with portable image URLs
 ```
@@ -24,7 +24,9 @@ The two modes have different meanings:
 - `metric` projects CLIP vectors into the learned compatibility space and ranks by
   Euclidean distance.
 
-FAISS and changes to the recommendation/training logic are intentionally deferred.
+SQLite remains the durable source of vectors and metadata. FAISS indexes are
+disposable search artifacts rebuilt from SQLite. Set `RETRIEVAL_BACKEND=sqlite` to
+use the preserved linear scan for recovery or benchmarking.
 
 ## Repository structure
 
@@ -38,16 +40,14 @@ examples/                Secondary Streamlit demo
 tests/                   Dataset-independent regression tests
 ```
 
-The runtime package is separated into domain models, embedding inference, SQLite
-retrieval, recommenders, database setup, and local image storage. Importing a module
+The runtime package is separated into domain models, embedding inference, vector
+search, recommenders, database access, and local image storage. Importing a module
 does not load CLIP, read the catalog, or mutate the filesystem.
 
 SQLite stores the catalog's actual CLIP and metric vectors as binary blobs. The
-per-item `.npy` files shown below are optional offline intermediates used by the
-current generation and training scripts; request-time recommendations do not read
-them. The planned ML cleanup will load CLIP training features from SQLite, or from
-one consolidated derived artifact, so the project no longer depends on hundreds of
-thousands of small embedding files.
+generation scripts write vectors directly to SQLite, metric generation streams CLIP
+vectors from SQLite, and training reads CLIP features from SQLite. Per-item `.npy`
+files are supported only by the explicit one-time legacy importer.
 
 ## Local artifact layout
 
@@ -58,9 +58,10 @@ resolved from the repository root.
 data/
     findmyfit.db
     images/<category>/<item filename>
-    embeddings/
-        clip/<category>/<item id>.npy
-        metric/<category>/<item id>.npy
+    indexes/faiss/
+        clip/vit-b32/<category>.faiss
+        findmyfit/v1/<category>.faiss
+    benchmarks/
 checkpoints/
     metric_learning/best_model.pt
 ```
@@ -76,7 +77,7 @@ Python 3.10 or newer and Node.js 20 or newer are recommended.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e ".[api,ml,dev]"
+pip install -e ".[api,ml,retrieval,dev]"
 cd frontend
 npm install
 cd ..
@@ -95,15 +96,19 @@ Diagnostics never rewrite the catalog:
 
 ```powershell
 python -m findmyfit doctor
+python -m findmyfit catalog audit
+python -m findmyfit catalog migrate
 python -m findmyfit paths audit
 python -m findmyfit paths migrate
 ```
 
-The migration command is a dry run unless `--apply` is passed. Applying database
-path normalization creates a timestamped backup first, rewrites only verified files
-beneath `IMAGES_DIR`, and refuses artifact conflicts.
+Migration commands are dry runs unless `--apply` is passed. Catalog migration adds
+artifact fingerprints and lookup indexes and corrects dimensions from vector byte
+lengths and configured model artifacts. Path migration normalizes verified image
+keys beneath `IMAGES_DIR`. Both create a timestamped SQLite backup before writing.
 
 ```powershell
+python -m findmyfit catalog migrate --apply
 python -m findmyfit paths migrate --apply
 ```
 
@@ -128,7 +133,8 @@ npm run dev
 Health endpoints:
 
 - `GET /health/live` verifies that the API process is alive.
-- `GET /health/ready` reports catalog, image, checkpoint, and recommender readiness.
+- `GET /health/ready` reports catalog, image, checkpoint, vector-index, and
+  recommender readiness.
 - `GET /categories` lists canonical database categories.
 - `POST /recommend` accepts a multipart image and repeated `match_categories` fields.
 
@@ -149,10 +155,49 @@ This example uses the same `ClothingRecommender` facade and settings as FastAPI.
 python scripts/create_database.py
 python scripts/create_clip_embeddings.py
 python scripts/create_metric_embeddings.py
-python scripts/migrate_legacy_data.py
+python scripts/migrate_legacy_data.py --clip-dir <legacy-clip-dir> --metric-dir <legacy-metric-dir>
 python scripts/verify_database.py
 python -m training.metric_learning.train
 ```
+
+`create_clip_embeddings.py` hashes each image and skips current rows before running
+CLIP. If image content changes, all vectors for that item are invalidated before the
+new CLIP vector is generated. `create_metric_embeddings.py` projects missing CLIP
+rows in batches and resumes safely.
+
+Build and validate the exact indexes after SQLite is ready:
+
+```powershell
+python -m findmyfit faiss build --engine all
+python -m findmyfit faiss audit
+```
+
+Use `--replace` for an intentional atomic rebuild. A missing, corrupt, stale, or
+dimension-mismatched index makes FAISS readiness false; the application never
+silently falls back.
+
+Legacy `.npy` directories are not removed automatically. Delete them manually only
+after all of these checkpoints succeed:
+
+1. CLIP and metric rows are verified in SQLite.
+2. Training loads CLIP features from SQLite.
+3. Both FAISS indexes build and audit successfully.
+4. Recommendation parity and benchmarks pass.
+
+## Performance evaluation
+
+Run the exact-search and end-to-end comparisons against the real local catalog:
+
+```powershell
+python -m findmyfit benchmark retrieval
+python -m findmyfit benchmark api
+```
+
+The retrieval benchmark warms both backends, checks identical ordering and scores
+within `1e-6`, and reports initialization, mean, p50, p95, throughput, and speedup.
+The API benchmark also includes upload validation, decoding, CLIP inference,
+projection, and serialization. Machine-readable results are ignored under
+`data/benchmarks/`; the real run generates `docs/FAISS_EVALUATION.md`.
 
 ## Tests
 
@@ -165,9 +210,8 @@ pytest
 
 ## Deferred improvements
 
-- FAISS-backed vector retrieval
-- SQLite-backed or consolidated training features instead of per-item `.npy` files
 - training split leakage, sampling correctness, and stronger evaluation metrics
+- approximate FAISS indexes such as IVF or HNSW
 - category-balanced retrieval and diversity
 - score calibration and recommendation explanations
 - frontend component restructuring

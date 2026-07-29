@@ -9,7 +9,6 @@ from typing import Annotated, Literal
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -45,9 +44,8 @@ class Settings(BaseSettings):
     project_root: Path = Field(default=PROJECT_ROOT, exclude=True)
     database_url: str = "sqlite:///data/findmyfit.db"
     images_dir: Path = Path("data/images")
-    clip_embeddings_dir: Path = Path("data/embeddings/clip")
-    metric_embeddings_dir: Path = Path("data/embeddings/metric")
     metric_checkpoint_path: Path = Path("checkpoints/metric_learning/best_model.pt")
+    faiss_index_dir: Path = Path("data/indexes/faiss")
     compatibility_outfits_file: Path = Field(
         default=Path("data/outfits.txt"),
         validation_alias=AliasChoices(
@@ -59,6 +57,7 @@ class Settings(BaseSettings):
     optuna_storage_path: Path = Path("checkpoints/metric_learning/optuna_study.db")
 
     recommender_engine: Literal["cosine", "metric"] = "metric"
+    retrieval_backend: Literal["faiss", "sqlite"] = "faiss"
     clip_model_name: str = "ViT-B/32"
     clip_catalog_model_name: str = "clip"
     clip_model_version: str = "vit-b32"
@@ -81,13 +80,12 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def resolve_filesystem_values(self) -> "Settings":
+    def resolve_filesystem_values(self) -> Settings:
         root = self.project_root.expanduser().resolve()
         self.project_root = root
         self.images_dir = _resolve_path(self.images_dir, root)
-        self.clip_embeddings_dir = _resolve_path(self.clip_embeddings_dir, root)
-        self.metric_embeddings_dir = _resolve_path(self.metric_embeddings_dir, root)
         self.metric_checkpoint_path = _resolve_path(self.metric_checkpoint_path, root)
+        self.faiss_index_dir = _resolve_path(self.faiss_index_dir, root)
         self.compatibility_outfits_file = _resolve_path(
             self.compatibility_outfits_file, root
         )
@@ -99,6 +97,6 @@ class Settings(BaseSettings):
         return self
 
     @classmethod
-    def from_env(cls, env_file: str | Path | None = None, **overrides: object) -> "Settings":
+    def from_env(cls, env_file: str | Path | None = None, **overrides: object) -> Settings:
         selected_env = Path(env_file) if env_file is not None else PROJECT_ROOT / ".env"
         return cls(_env_file=selected_env, _env_file_encoding="utf-8", **overrides)

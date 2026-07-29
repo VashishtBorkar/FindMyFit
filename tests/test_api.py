@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -109,3 +110,37 @@ def test_readiness_reports_initialization_failure(tmp_path: Path):
         response = client.get("/health/ready")
     assert response.status_code == 503
     assert "secret local detail" not in response.text
+    assert "vector_index" in response.json()["components"]
+
+
+def test_readiness_reports_stale_faiss_index_separately(
+    tmp_path: Path,
+    monkeypatch,
+):
+    database_url = f"sqlite:///{(tmp_path / 'catalog.db').as_posix()}"
+    settings = Settings(
+        _env_file=None,
+        project_root=tmp_path,
+        recommender_engine="cosine",
+        retrieval_backend="faiss",
+        images_dir=tmp_path,
+        database_url=database_url,
+    )
+    monkeypatch.setattr(
+        "backend.main.audit_faiss_indexes",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            ready=False,
+            details=("stale",),
+        ),
+    )
+
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    components = response.json()["components"]
+    assert components["database"]["ready"] is True
+    assert components["vector_index"] == {
+        "ready": False,
+        "detail": "FAISS index is missing, stale, or invalid",
+    }

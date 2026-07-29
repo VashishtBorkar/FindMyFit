@@ -19,3 +19,7 @@ class InvalidRecommendationRequest(FindMyFitError, ValueError):
 
 class CatalogError(FindMyFitError):
     """Raised when catalog metadata or embeddings cannot be loaded."""
+
+
+class VectorIndexError(FindMyFitError):
+    """Raised when a vector-search index is missing, stale, or invalid."""

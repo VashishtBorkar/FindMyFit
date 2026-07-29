@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
@@ -73,7 +73,7 @@ def normalize_catalog_paths(
         raise ConfigurationError("SQLite database does not exist")
     backup_dir = database_path.parent / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     backup_path = backup_dir / f"{database_path.stem}-{timestamp}{database_path.suffix}"
     shutil.copy2(database_path, backup_path)
 
@@ -98,8 +98,6 @@ def legacy_artifact_pairs(settings: Settings) -> list[tuple[Path, Path]]:
     database_path = sqlite_path_from_url(settings.database_url)
     candidates = [
         (root / "findmyfit.db", database_path),
-        (root / "clip_embeddings", settings.clip_embeddings_dir),
-        (root / "metric_embeddings", settings.metric_embeddings_dir),
         (root / "best_model.pt", settings.metric_checkpoint_path),
     ]
     return [(source, target) for source, target in candidates if source != target]
@@ -107,6 +105,13 @@ def legacy_artifact_pairs(settings: Settings) -> list[tuple[Path, Path]]:
 
 def migrate_legacy_artifacts(settings: Settings, *, apply: bool) -> list[str]:
     messages: list[str] = []
+    for directory_name in ("clip_embeddings", "metric_embeddings"):
+        legacy_directory = settings.project_root / directory_name
+        if legacy_directory.exists():
+            messages.append(
+                f"LEGACY: {legacy_directory} is no longer used; keep it until "
+                "SQLite generation, training, and FAISS retrieval are verified"
+            )
     for source, target in legacy_artifact_pairs(settings):
         if not source.exists():
             continue
