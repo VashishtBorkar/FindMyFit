@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 export async function fetchCategories() {
   const response = await fetch(`${API_BASE}/categories`);
@@ -19,7 +19,9 @@ export async function generateRecommendations({
   const formData = new FormData();
   formData.append("image", imageFile);
   formData.append("target_category", targetCategory);
-  formData.append("match_categories", JSON.stringify(matchCategories));
+  matchCategories.forEach((category) => {
+    formData.append("match_categories", category);
+  });
   formData.append("max_recommendations", maxRecommendations);
 
   const response = await fetch(`${API_BASE}/recommend`, {
@@ -36,8 +38,10 @@ export async function generateRecommendations({
 
   return {
     recommendations: data.recommendations.map((item) => ({
-      ...item,
-      image: item.image ? `${API_BASE}${item.image}` : null,
+      id: item.item_id,
+      category: item.category,
+      score: Math.round(item.score * 1000) / 10,
+      image: item.image_url ? `${API_BASE}${item.image_url}` : null,
     })),
   };
 }

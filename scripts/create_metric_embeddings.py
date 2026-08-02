@@ -1,169 +1,124 @@
-"""
-Script to generate metric embeddings from CLIP embeddings using trained model.
-This converts CLIP embeddings into the learned metric space where compatible items are close.
-"""
+"""Project SQLite CLIP vectors into metric space and persist them to SQLite."""
 
-from pathlib import Path
-import os
+from __future__ import annotations
+
+import argparse
+import logging
+
 import numpy as np
-import torch
-from dotenv import load_dotenv
-from tqdm import tqdm
 
-from src.models.metric_learning.model import FashionCompatibilityModel
-from src.models.metric_learning.optuna_search import get_hyperparameters
-from src.utils.logging import get_logger, setup_logging
+from findmyfit.config import Settings
+from findmyfit.db.embedding_repository import SqliteEmbeddingRepository
+from findmyfit.db.session import create_session_factory
+from findmyfit.embeddings.fingerprints import metric_artifact_fingerprint
+from findmyfit.embeddings.metric_projector import MetricProjector
+from findmyfit.storage.local_images import LocalImageStore
 
-
-def load_trained_model(checkpoint_path: str, embedding_dim: int = 512):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model = FashionCompatibilityModel(
-        embedding_dim=embedding_dim,
-        hidden_dim=checkpoint["hidden_dim"],
-        output_dim=checkpoint["output_dim"]
-    ).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    
-    return model, device
+LOGGER = logging.getLogger(__name__)
 
 
-def generate_metric_embeddings(clip_embeddings_dir: Path, 
-                               metric_embeddings_dir: Path,
-                               model: torch.nn.Module,
-                               device: torch.device,
-                               batch_size: int = 64,
-                               force_reload: bool = False):
-    """
-    Generate metric embeddings from CLIP embeddings.
-    
-    Args:
-        clip_embeddings_dir: Directory containing CLIP embeddings (.npy files)
-        metric_embeddings_dir: Directory to save metric embeddings
-        model: Trained metric learning model
-        device: Device for computation
-        batch_size: Batch size for processing
-        force_reload: regenerate embeddings even if they exist
-    """
-    logger = get_logger(__name__)
-    
-    metric_embeddings_dir.mkdir(parents=True, exist_ok=True)
-    
-    processed_count = 0
-    skipped_count = 0
-    
-    # Process each category
-    for category_dir in clip_embeddings_dir.iterdir():
-        if not category_dir.is_dir():
+def generate_metric_embeddings(
+    repository: SqliteEmbeddingRepository,
+    projector: MetricProjector,
+    *,
+    clip_model_name: str,
+    clip_model_version: str,
+    metric_model_id: int,
+    force: bool = False,
+    batch_size: int = 256,
+    limit: int | None = None,
+) -> dict[str, int]:
+    counts = {"created": 0, "updated": 0, "skipped": 0}
+    batch = []
+    considered = 0
+
+    def project_pending() -> None:
+        if not batch:
+            return
+        projected = projector.project_batch(
+            np.stack([record.vector for record in batch])
+        )
+        for record, vector in zip(batch, projected):
+            result = repository.upsert_embedding(
+                model_id=metric_model_id,
+                item_id=record.item_id,
+                category=record.category,
+                image_key=record.image_key,
+                image_hash=record.image_hash,
+                vector=vector,
+                force=force,
+            )
+            counts[result] += 1
+        batch.clear()
+
+    for record in repository.iter_vectors(
+        model_name=clip_model_name,
+        model_version=clip_model_version,
+        batch_size=batch_size,
+    ):
+        if limit is not None and considered >= limit:
+            break
+        considered += 1
+        if (
+            not force
+            and repository.has_embedding(
+                model_id=metric_model_id,
+                item_id=record.item_id,
+            )
+        ):
+            counts["skipped"] += 1
             continue
-        
-        category_metric_dir = metric_embeddings_dir / category_dir.name
-        category_metric_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Get all embedding files in this category
-        embedding_files = list(category_dir.glob("*.npy"))
-        
-        logger.info(f"Processing category: {category_dir.name} ({len(embedding_files)} items)")
-        
-        # Process in batches for efficiency
-        for i in tqdm(range(0, len(embedding_files), batch_size), 
-                     desc=f"Processing {category_dir.name}"):
-            batch_files = embedding_files[i:i + batch_size]
-            batch_clip_embeddings = []
-            batch_output_paths = []
-            batch_valid_indices = []
-            
-            # Load batch of CLIP embeddings
-            for idx, emb_file in enumerate(batch_files):
-                metric_emb_file = category_metric_dir / f"{emb_file.stem}.npy"
-                
-                # Skip if already exists
-                if metric_emb_file.exists() and not force_reload:
-                    skipped_count += 1
-                    continue
-                
-                try:
-                    clip_emb = np.load(emb_file)
-                    batch_clip_embeddings.append(clip_emb)
-                    batch_output_paths.append(metric_emb_file)
-                    batch_valid_indices.append(idx)
-                except Exception as e:
-                    logger.error(f"Failed to load {emb_file}: {e}")
-                    continue
-            
-            # Skip if nothing to process in this batch
-            if len(batch_clip_embeddings) == 0:
-                continue
-            
-            # Convert to tensor and generate metric embeddings
-            try:
-                with torch.no_grad():
-                    clip_tensor = torch.tensor(np.array(batch_clip_embeddings), 
-                                              dtype=torch.float32).to(device)
-                    metric_embeddings = model(clip_tensor)
-                    metric_embeddings = metric_embeddings.cpu().numpy()
-                
-                # Save each metric embedding
-                for metric_emb, output_path in zip(metric_embeddings, batch_output_paths):
-                    np.save(output_path, metric_emb)
-                    processed_count += 1
-            
-            except Exception as e:
-                logger.error(f"Failed to process batch: {e}")
-                continue
-    
-    return processed_count, skipped_count
+        batch.append(record)
+        if len(batch) >= batch_size:
+            project_pending()
+    project_pending()
+    LOGGER.info("Metric generation summary: %s", counts)
+    return counts
 
 
-def main():
-    setup_logging(level='INFO')
-    logger = get_logger(__name__)
-    
-    # Load environment variables
-    load_dotenv()
-    
-    # Paths
-    clip_embeddings_dir = Path("data/clip_embeddings").resolve()
-    metric_embeddings_dir = Path("data/metric_embeddings").resolve()
-    checkpoint_path = Path("checkpoints/metric_learning/best_model.pt").resolve()
-    
-    # Validate paths
-    if not clip_embeddings_dir.exists():
-        raise FileNotFoundError(f"CLIP embeddings directory not found: {clip_embeddings_dir}")
-    
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Model checkpoint not found: {checkpoint_path}")
-    
-    logger.info(f"CLIP embeddings directory: {clip_embeddings_dir}")
-    logger.info(f"Metric embeddings directory: {metric_embeddings_dir}")
-    logger.info(f"Model checkpoint: {checkpoint_path}")
-
-
-    # Load model
-    logger.info("Loading trained model...")
-    model, device = load_trained_model(
-        embedding_dim=512,
-        checkpoint_path=str(checkpoint_path),
+def main(
+    *,
+    force: bool = False,
+    batch_size: int = 256,
+    limit: int | None = None,
+) -> None:
+    logging.basicConfig(level=logging.INFO)
+    settings = Settings.from_env()
+    projector = MetricProjector(settings.metric_checkpoint_path)
+    repository = SqliteEmbeddingRepository(
+        create_session_factory(settings.database_url),
+        LocalImageStore(settings.images_dir),
     )
-    logger.info(f"Model loaded on {device}")
-    
-    # Generate metric embeddings
-    logger.info("Generating metric embeddings...")
-    processed_count, skipped_count = generate_metric_embeddings(
-        clip_embeddings_dir=clip_embeddings_dir,
-        metric_embeddings_dir=metric_embeddings_dir,
-        model=model,
-        device=device,
-        batch_size=64,
-        force_reload=True
+    metric_model_id = repository.ensure_model(
+        name=settings.metric_model_name,
+        version=settings.metric_model_version,
+        dimension=projector.output_dim,
+        artifact_fingerprint=metric_artifact_fingerprint(
+            settings.metric_checkpoint_path,
+            model_version=settings.metric_model_version,
+            clip_model_version=settings.clip_model_version,
+        ),
     )
-    
-    logger.info("Finished generating metric embeddings!")
-    logger.info(f"Processed: {processed_count} items")
-    logger.info(f"Skipped: {skipped_count} items (already existed)")
-    logger.info(f"Saved to: {metric_embeddings_dir}")
+    generate_metric_embeddings(
+        repository,
+        projector,
+        clip_model_name=settings.clip_catalog_model_name,
+        clip_model_version=settings.clip_model_version,
+        metric_model_id=metric_model_id,
+        force=force,
+        batch_size=batch_size,
+        limit=limit,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--limit", type=int)
+    arguments = parser.parse_args()
+    main(
+        force=arguments.force,
+        batch_size=arguments.batch_size,
+        limit=arguments.limit,
+    )

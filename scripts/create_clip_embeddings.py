@@ -1,59 +1,112 @@
-from pathlib import Path
-import os
-from dotenv import load_dotenv
-from src.fashion_matcher.services.embedding_generator import CLIPEmbeddingGenerator
-from src.utils.logging import get_logger, setup_logging
+"""Generate CLIP catalog vectors directly into configured SQLite storage."""
 
-def main():
-    # setup_logging(level='DEBUG')
-    logger = get_logger(__name__)
-    setup_logging(level='INFO')
-    
-    # Paths
-    load_dotenv()
-    image_dir = Path(os.getenv("IMAGES_DIR", "../data/images"))
-    embeddings_dir = Path("data/clip_embeddings").resolve()
-    embeddings_dir.mkdir(parents=True, exist_ok=True)
+from __future__ import annotations
 
-    if not image_dir.exists():
-        raise FileNotFoundError(f"Image directory not found: {image_dir}")
-    if not embeddings_dir.exists():
-        raise FileNotFoundError(f"Embedding directory not found: {embeddings_dir}")
+import argparse
+import logging
 
-    # Initialize embedding generator
-    generator = CLIPEmbeddingGenerator(model_name="ViT-B/32")
+from findmyfit.config import Settings
+from findmyfit.db.embedding_repository import SqliteEmbeddingRepository
+from findmyfit.db.session import create_session_factory
+from findmyfit.embeddings.clip import ClipEmbedder
+from findmyfit.embeddings.fingerprints import clip_artifact_fingerprint
+from findmyfit.storage.hashing import sha256_path
+from findmyfit.storage.local_images import LocalImageStore
 
-    # Iterate through all images
-    processed_count = 0
-    skipped_count = 0
-    
-    for category_dir in Path(image_dir).iterdir():
+LOGGER = logging.getLogger(__name__)
+
+
+def generate_clip_embeddings(
+    settings: Settings,
+    repository: SqliteEmbeddingRepository,
+    embedder: ClipEmbedder,
+    *,
+    model_id: int,
+    force: bool = False,
+    limit: int | None = None,
+) -> dict[str, int]:
+    if not settings.images_dir.is_dir():
+        raise FileNotFoundError("Configured image directory does not exist")
+
+    counts = {"created": 0, "updated": 0, "skipped": 0, "failed": 0}
+    visited = 0
+
+    for category_dir in sorted(settings.images_dir.iterdir()):
         if not category_dir.is_dir():
             continue
-        category_embeddings_dir = embeddings_dir / category_dir.name
-        category_embeddings_dir.mkdir(parents=True, exist_ok=True)
-        for clothing_image in category_dir.iterdir():
-            if not clothing_image.is_file():
-                skipped_count += 1
+        for image_path in sorted(category_dir.iterdir()):
+            if not image_path.is_file():
                 continue
-
-            embedding_file = category_embeddings_dir / f"{clothing_image.stem}.npy"
-            if embedding_file.exists():
-                skipped_count += 1
-                continue
+            if limit is not None and visited >= limit:
+                LOGGER.info("CLIP generation summary: %s", counts)
+                return counts
+            visited += 1
             try:
-                generator.generate_and_save_embedding(clothing_image, category_embeddings_dir)
-                processed_count += 1
+                image_hash = sha256_path(image_path)
+                repository.prepare_image(
+                    item_id=image_path.stem,
+                    category=category_dir.name,
+                    image_key=image_path.relative_to(
+                        settings.images_dir
+                    ).as_posix(),
+                    image_hash=image_hash,
+                )
+                if (
+                    not force
+                    and repository.has_embedding(
+                        model_id=model_id,
+                        item_id=image_path.stem,
+                    )
+                ):
+                    counts["skipped"] += 1
+                    continue
+                result = repository.upsert_embedding(
+                    model_id=model_id,
+                    item_id=image_path.stem,
+                    category=category_dir.name,
+                    image_key=image_path.relative_to(settings.images_dir).as_posix(),
+                    image_hash=image_hash,
+                    vector=embedder.embed(image_path),
+                    force=True,
+                )
+                counts[result] += 1
+            except Exception:
+                counts["failed"] += 1
+                LOGGER.exception("Unable to embed %s", image_path.name)
 
-                if processed_count % 100 == 0:
-                    logger.info(f"Processed {processed_count} images, skipped {skipped_count} images.")
+    LOGGER.info("CLIP generation summary: %s", counts)
+    return counts
 
-            except Exception as e:
-                logger.error(f"Failed to process {clothing_image}: {e}")
 
-    logger.info("Finished generating embeddings.")
-    logger.info(f"Found {processed_count} images in {image_dir}")
-    logger.info(f"Skipped {skipped_count} images that already had embeddings.")
+def main(force: bool = False, limit: int | None = None) -> None:
+    logging.basicConfig(level=logging.INFO)
+    settings = Settings.from_env()
+    repository = SqliteEmbeddingRepository(
+        create_session_factory(settings.database_url),
+        LocalImageStore(settings.images_dir),
+    )
+    model_id = repository.ensure_model(
+        name=settings.clip_catalog_model_name,
+        version=settings.clip_model_version,
+        dimension=512,
+        artifact_fingerprint=clip_artifact_fingerprint(
+            settings.clip_model_name,
+            settings.clip_model_version,
+        ),
+    )
+    generate_clip_embeddings(
+        settings,
+        repository,
+        ClipEmbedder(settings.clip_model_name),
+        model_id=model_id,
+        force=force,
+        limit=limit,
+    )
+
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limit", type=int)
+    arguments = parser.parse_args()
+    main(force=arguments.force, limit=arguments.limit)

@@ -1,160 +1,217 @@
 # FindMyFit
 
-FindMyFit is an AI-powered fashion recommendation app. Upload a clothing item, choose its category, select the categories you want to match against, and get outfit recommendations ranked by compatibility.
-
-The project includes a React frontend, a FastAPI backend, and a Python recommendation layer that uses CLIP embeddings plus a metric-learning model.
-
-## Demo Video
-
+FindMyFit recommends catalog items that visually resemble or are compatible with an
+uploaded clothing image. The primary demo is a React frontend backed by FastAPI. The
+recommendation runtime uses CLIP image embeddings and an optional learned
+metric-projection model.
 
 [Watch the demo](https://youtu.be/BaSdn4e1AtY)
 
-## Features
-
-- Upload clothing images from the browser
-- Select the uploaded item's category
-- Choose which clothing categories to match with
-- Generate ranked outfit recommendations
-- Serve recommended item images from the local image dataset
-- Support CLIP-based and metric-learning recommendation engines
-
-## Tech Stack
-
-- Frontend: React, Vite, Tailwind CSS
-- Backend: FastAPI, Uvicorn
-- ML: PyTorch, CLIP, NumPy, scikit-learn, Pillow
-- Data: local clothing images, embeddings, and model checkpoints
-
-## Project Structure
+## How it works
 
 ```text
-.
-+-- app.py                         # Optional Streamlit app
-+-- backend/
-|   +-- main.py                    # FastAPI API server
-|   +-- requirements.txt           # Backend runtime dependencies
-+-- frontend/
-|   +-- package.json               # React/Vite scripts and dependencies
-|   +-- src/                       # Frontend app source
-+-- scripts/                       # Data and embedding preparation scripts
-+-- src/
-|   +-- data_manager/              # Embedding loading helpers
-|   +-- database/                  # Database models and setup scripts
-|   +-- fashion_matcher/           # Recommendation domain logic
-|   +-- models/metric_learning/    # Metric-learning model and training code
-|   +-- utils/                     # Shared utilities
-+-- tests/                         # Test files
+uploaded image
+    -> CLIP embedding
+    -> optional metric projection
+    -> exact category-partitioned FAISS search
+    -> ranking and hash deduplication
+    -> API response with portable image URLs
 ```
 
-## Prerequisites
+The two modes have different meanings:
 
-- Python 3.10+
-- Node.js 20+
-- A local `.env` file
-- Local image data and generated embeddings
-- Metric-learning checkpoint at `checkpoints/metric_learning/best_model.pt`
+- `cosine` ranks visual similarity directly in CLIP space.
+- `metric` projects CLIP vectors into the learned compatibility space and ranks by
+  Euclidean distance.
 
-The app reads `IMAGES_DIR` from `.env` and defaults to `data/images` when it is not set.
+SQLite remains the durable source of vectors and metadata. FAISS indexes are
+disposable search artifacts rebuilt from SQLite. Set `RETRIEVAL_BACKEND=sqlite` to
+use the preserved linear scan for recovery or benchmarking.
 
-Example `.env`:
+## Repository structure
 
-```env
-IMAGES_DIR=data/images
+```text
+backend/                 FastAPI composition root, routes, and schemas
+frontend/                React/Vite demo
+src/findmyfit/           Installable request-time recommendation package
+training/metric_learning Offline datasets, loss, training, and tuning
+scripts/                 Explicit data preparation and database commands
+examples/                Secondary Streamlit demo
+tests/                   Dataset-independent regression tests
 ```
 
-The repository intentionally ignores large local data and model artifacts such as `data/`, `checkpoints/`, database files, and model weights.
+The runtime package is separated into domain models, embedding inference, vector
+search, recommenders, database access, and local image storage. Importing a module
+does not load CLIP, read the catalog, or mutate the filesystem.
 
-## Setup
+SQLite stores the catalog's actual CLIP and metric vectors as binary blobs. The
+generation scripts write vectors directly to SQLite, metric generation streams CLIP
+vectors from SQLite, and training reads CLIP features from SQLite. Per-item `.npy`
+files are supported only by the explicit one-time legacy importer.
 
-Create and activate a Python virtual environment:
+## Local artifact layout
+
+Large artifacts are intentionally ignored by Git. Relative paths in `.env` are
+resolved from the repository root.
+
+```text
+data/
+    findmyfit.db
+    images/<category>/<item filename>
+    indexes/faiss/
+        clip/vit-b32/<category>.faiss
+        findmyfit/v1/<category>.faiss
+    benchmarks/
+checkpoints/
+    metric_learning/best_model.pt
+```
+
+Copy [.env.example](.env.example) to `.env` and override paths when the dataset is
+stored elsewhere. SQLite image rows should contain keys relative to `IMAGES_DIR`,
+such as `shoes/12345.jpg`.
+
+## Installation
+
+Python 3.10 or newer and Node.js 20 or newer are recommended.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-Install the backend dependencies:
-
-```powershell
-pip install -r backend/requirements.txt
-```
-
-Install the additional ML dependencies used by the recommender:
-
-```powershell
-pip install torch numpy scikit-learn pillow python-dotenv
-pip install git+https://github.com/openai/CLIP.git
-```
-
-Install the frontend dependencies:
-
-```powershell
+pip install -e ".[api,ml,retrieval,dev]"
 cd frontend
 npm install
 cd ..
 ```
 
-## Running the App
+Install offline training or Streamlit dependencies only when needed:
 
-Start the FastAPI backend from the project root:
+```powershell
+pip install -e ".[training]"
+pip install -e ".[streamlit]"
+```
+
+## Check the local environment
+
+Diagnostics never rewrite the catalog:
+
+```powershell
+python -m findmyfit doctor
+python -m findmyfit catalog audit
+python -m findmyfit catalog migrate
+python -m findmyfit paths audit
+python -m findmyfit paths migrate
+```
+
+Migration commands are dry runs unless `--apply` is passed. Catalog migration adds
+artifact fingerprints and lookup indexes and corrects dimensions from vector byte
+lengths and configured model artifacts. Path migration normalizes verified image
+keys beneath `IMAGES_DIR`. Both create a timestamped SQLite backup before writing.
+
+```powershell
+python -m findmyfit catalog migrate --apply
+python -m findmyfit paths migrate --apply
+```
+
+Review the audit before applying it. The application never migrates data at startup.
+
+## Run the primary demo
+
+Start FastAPI from the repository root:
 
 ```powershell
 uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In a second terminal, start the React frontend:
+In another terminal:
 
 ```powershell
 cd frontend
+Copy-Item .env.example .env.local
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal, usually:
+Health endpoints:
 
-```text
-http://localhost:5173
-```
+- `GET /health/live` verifies that the API process is alive.
+- `GET /health/ready` reports catalog, image, checkpoint, vector-index, and
+  recommender readiness.
+- `GET /categories` lists canonical database categories.
+- `POST /recommend` accepts a multipart image and repeated `match_categories` fields.
 
-The frontend expects the backend at `http://localhost:8000`.
+If an artifact cannot initialize, the API remains available for diagnostics and
+recommendation requests return `503`.
 
-## Optional Streamlit App
-
-This repository also includes a Streamlit entry point:
+## Streamlit example
 
 ```powershell
-streamlit run app.py
+streamlit run examples/streamlit_app.py
 ```
 
-Use this if you want a single Python-based interface instead of the React/FastAPI flow.
+This example uses the same `ClothingRecommender` facade and settings as FastAPI.
 
-## Preparing Data
+## Offline commands
 
-The recommendation system expects local image assets, stored embeddings, and a trained metric-learning checkpoint. Useful scripts live in `scripts/`:
+```powershell
+python scripts/create_database.py
+python scripts/create_clip_embeddings.py
+python scripts/create_metric_embeddings.py
+python scripts/migrate_legacy_data.py --clip-dir <legacy-clip-dir> --metric-dir <legacy-metric-dir>
+python scripts/verify_database.py
+python -m training.metric_learning.train
+```
 
-- `scripts/convert_avif.py`
-- `scripts/create_clip_embeddings.py`
-- `scripts/create_metric_embeddings.py`
-- `scripts/create_training_pairs.py`
-- `scripts/testing.py`
+`create_clip_embeddings.py` hashes each image and skips current rows before running
+CLIP. If image content changes, all vectors for that item are invalidated before the
+new CLIP vector is generated. `create_metric_embeddings.py` projects missing CLIP
+rows in batches and resumes safely.
 
-Database setup and verification helpers live in `src/database/scripts/`.
+Build and validate the exact indexes after SQLite is ready:
 
-## API Endpoints
+```powershell
+python -m findmyfit faiss build --engine all
+python -m findmyfit faiss audit
+```
 
-- `GET /` - Health check
-- `GET /categories` - Returns supported clothing categories
-- `POST /recommend` - Accepts an uploaded image and recommendation options, then returns ranked recommendations
+Use `--replace` for an intentional atomic rebuild. A missing, corrupt, stale, or
+dimension-mismatched index makes FAISS readiness false; the application never
+silently falls back.
 
-## Testing
+Legacy `.npy` directories are not removed automatically. Delete them manually only
+after all of these checkpoints succeed:
 
-Run tests from the project root:
+1. CLIP and metric rows are verified in SQLite.
+2. Training loads CLIP features from SQLite.
+3. Both FAISS indexes build and audit successfully.
+4. Recommendation parity and benchmarks pass.
+
+## Performance evaluation
+
+Run the exact-search and end-to-end comparisons against the real local catalog:
+
+```powershell
+python -m findmyfit benchmark retrieval
+python -m findmyfit benchmark api
+```
+
+The retrieval benchmark warms both backends, checks identical ordering and scores
+within `1e-6`, and reports initialization, mean, p50, p95, throughput, and speedup.
+The API benchmark also includes upload validation, decoding, CLIP inference,
+projection, and serialization. Machine-readable results are ignored under
+`data/benchmarks/`; the real run generates `docs/FAISS_EVALUATION.md`.
+
+## Tests
+
+The regression suite uses temporary images and SQLite databases; it does not load
+the real catalog, CLIP weights, or checkpoint.
 
 ```powershell
 pytest
 ```
 
-## Notes
+## Deferred improvements
 
-- Keep `.env` and local datasets out of git.
-- Make sure `IMAGES_DIR` points to the image directory used when generating embeddings.
-- If the metric-learning checkpoint is missing, the default backend recommender will fail during startup because it loads `checkpoints/metric_learning/best_model.pt`.
+- training split leakage, sampling correctness, and stronger evaluation metrics
+- approximate FAISS indexes such as IVF or HNSW
+- category-balanced retrieval and diversity
+- score calibration and recommendation explanations
+- frontend component restructuring

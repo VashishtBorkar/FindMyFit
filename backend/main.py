@@ -1,127 +1,168 @@
-import json
-import os
-import shutil
-import tempfile
-from pathlib import Path
+"""FastAPI composition root for FindMyFit."""
 
-from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
 
-from src.fashion_matcher.clothing_recommender import ClothingRecommender
+from backend.routes import router
+from findmyfit.config import Settings
+from findmyfit.db.embedding_repository import SqliteEmbeddingRepository
+from findmyfit.db.session import create_session_factory
+from findmyfit.retrieval.faiss_index import audit_faiss_indexes
+from findmyfit.storage.local_images import LocalImageStore
 
-load_dotenv()
-
-images_dir = Path(os.getenv("IMAGES_DIR", "data/images"))
-
-app = FastAPI(title="FindMyFit API")
-
-# Allow your React frontend to call this backend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if TYPE_CHECKING:
+    from findmyfit import ClothingRecommender
 
 
-# Load recommender once at startup
-def load_recommender() -> ClothingRecommender:
-    return ClothingRecommender(
-        recommendation_engine_type="metric",
-        images_dir=images_dir
+LOGGER = logging.getLogger(__name__)
+
+
+def _selected_model(settings: Settings) -> tuple[str, str, str]:
+    if settings.recommender_engine == "cosine":
+        return (
+            settings.clip_catalog_model_name,
+            settings.clip_model_version,
+            "cosine",
+        )
+    return (
+        settings.metric_model_name,
+        settings.metric_model_version,
+        "l2",
     )
 
 
-recommender = load_recommender()
+def create_app(
+    settings: Settings | None = None,
+    recommender_factory: Callable[..., ClothingRecommender] | None = None,
+) -> FastAPI:
+    runtime_settings = settings or Settings.from_env()
+    image_store = LocalImageStore(runtime_settings.images_dir)
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.settings = runtime_settings
+        app.state.image_store = image_store
+        app.state.recommender = None
+        app.state.component_status = {
+            "database": {"ready": False, "detail": "Not initialized"},
+            "images": {
+                "ready": runtime_settings.images_dir.is_dir(),
+                "detail": None
+                if runtime_settings.images_dir.is_dir()
+                else "Image root is missing",
+            },
+            "checkpoint": {
+                "ready": (
+                    runtime_settings.recommender_engine == "cosine"
+                    or runtime_settings.metric_checkpoint_path.is_file()
+                ),
+                "detail": None
+                if (
+                    runtime_settings.recommender_engine == "cosine"
+                    or runtime_settings.metric_checkpoint_path.is_file()
+                )
+                else "Metric checkpoint is missing",
+            },
+            "vector_index": {
+                "ready": runtime_settings.retrieval_backend == "sqlite",
+                "detail": (
+                    "SQLite backend selected"
+                    if runtime_settings.retrieval_backend == "sqlite"
+                    else "Not initialized"
+                ),
+            },
+            "recommender": {"ready": False, "detail": "Not initialized"},
+        }
+        try:
+            selected_factory = recommender_factory
+            if selected_factory is None:
+                session_factory = create_session_factory(
+                    runtime_settings.database_url
+                )
+                with session_factory() as session:
+                    session.execute(select(1))
+                app.state.component_status["database"] = {
+                    "ready": True,
+                    "detail": None,
+                }
+                if runtime_settings.retrieval_backend == "faiss":
+                    model_name, model_version, metric = _selected_model(
+                        runtime_settings
+                    )
+                    index_audit = audit_faiss_indexes(
+                        SqliteEmbeddingRepository(session_factory, image_store),
+                        root=runtime_settings.faiss_index_dir,
+                        model_name=model_name,
+                        model_version=model_version,
+                        expected_metric=metric,
+                        checksums=True,
+                    )
+                    if not index_audit.ready:
+                        app.state.component_status["vector_index"] = {
+                            "ready": False,
+                            "detail": "FAISS index is missing, stale, or invalid",
+                        }
+                        raise RuntimeError("FAISS index is not ready")
+                    app.state.component_status["vector_index"] = {
+                        "ready": True,
+                        "detail": None,
+                    }
+                from findmyfit import ClothingRecommender
 
-# Serve recommendation images from your local images directory
-if images_dir.exists():
-    app.mount("/images", StaticFiles(directory=images_dir), name="images")
+                selected_factory = ClothingRecommender
+            else:
+                app.state.component_status["database"] = {
+                    "ready": True,
+                    "detail": None,
+                }
+                app.state.component_status["vector_index"] = {
+                    "ready": True,
+                    "detail": "Injected recommender factory",
+                }
+            app.state.recommender = selected_factory(
+                recommendation_engine_type=runtime_settings.recommender_engine,
+                settings=runtime_settings,
+            )
+            app.state.component_status["recommender"] = {"ready": True, "detail": None}
+        except Exception:
+            LOGGER.exception("Recommendation service initialization failed")
+            if not app.state.component_status["database"]["ready"]:
+                app.state.component_status["database"] = {
+                    "ready": False,
+                    "detail": "Database or catalog initialization failed",
+                }
+            app.state.component_status["recommender"] = {
+                "ready": False,
+                "detail": "Recommendation service initialization failed",
+            }
+        yield
+        app.state.recommender = None
 
-
-@app.get("/")
-def root():
-    return {"message": "FindMyFit backend is running"}
-
-
-@app.get("/categories")
-def get_categories():
-    try:
-        categories = ClothingRecommender.get_allowed_categories()
-        return {"categories": categories}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/recommend")
-async def recommend(
-    image: UploadFile = File(...),
-    target_category: str = Form(...),
-    match_categories: str = Form(...),
-    max_recommendations: int = Form(...)
-):
-    try:
-        parsed_match_categories = json.loads(match_categories)
-
-        if not isinstance(parsed_match_categories, list):
-            raise ValueError("match_categories must be a list")
-
-    except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail="match_categories must be a valid JSON array"
+    app = FastAPI(title="FindMyFit API", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=runtime_settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    if runtime_settings.images_dir.is_dir():
+        app.mount(
+            "/images",
+            StaticFiles(directory=runtime_settings.images_dir),
+            name="images",
         )
+    app.include_router(router)
+    return app
 
-    suffix = Path(image.filename).suffix if image.filename else ".png"
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-        tmp_path = tmp_file.name
-        shutil.copyfileobj(image.file, tmp_file)
-
-    try:
-        results = recommender.get_recommendations(
-            image_path=tmp_path,
-            target_category=target_category,
-            match_categories=parsed_match_categories,
-            max_recommendations=max_recommendations
-        )
-
-        serialized_results = []
-
-        for idx, rec in enumerate(results):
-            rec_path = rec.recommended_item.image_path
-
-            if not rec_path.exists():
-                jpg_path = Path(str(rec_path) + ".jpg")
-                if jpg_path.exists():
-                    rec_path = jpg_path
-
-            image_url = None
-
-            if rec_path.exists():
-                try:
-                    relative_path = rec_path.relative_to(images_dir)
-                    image_url = f"/images/{relative_path.as_posix()}"
-                except ValueError:
-                    image_url = None
-
-            serialized_results.append({
-                "id": idx,
-                "category": rec.recommended_item.category,
-                "score": round(rec.confidence_score * 100, 1),
-                "image": image_url,
-                "image_path": str(rec_path)
-            })
-
-        return {"recommendations": serialized_results}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+app = create_app()

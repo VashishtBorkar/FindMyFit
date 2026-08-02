@@ -1,0 +1,1 @@
+"""FindMyFit FastAPI application package."""
