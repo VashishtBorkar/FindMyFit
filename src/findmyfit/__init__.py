@@ -5,7 +5,6 @@ Heavy ML modules are loaded only when their public object is requested.
 
 from typing import Any
 
-
 __all__ = ["ClothingRecommender", "Settings"]
 
 

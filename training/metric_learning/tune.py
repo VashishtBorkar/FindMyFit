@@ -12,7 +12,6 @@ from findmyfit.models.metric import FashionCompatibilityModel
 from training.metric_learning.loss import ContrastiveLoss
 from training.metric_learning.trainer import Trainer
 
-
 STUDY_NAME = "fashion_compatibility_search"
 NUM_TUNING_EPOCHS = 5
 

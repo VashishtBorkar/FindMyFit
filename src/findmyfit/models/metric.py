@@ -1,7 +1,7 @@
 """Metric-learning projection model."""
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.nn.functional import cosine_similarity, normalize
 
 

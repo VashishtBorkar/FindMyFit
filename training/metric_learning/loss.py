@@ -1,7 +1,7 @@
 """Contrastive loss used by the metric-learning experiment."""
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class ContrastiveLoss(nn.Module):

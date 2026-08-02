@@ -10,7 +10,6 @@ from PIL import Image
 
 from findmyfit.errors import ConfigurationError
 
-
 LOGGER = logging.getLogger(__name__)
 
 

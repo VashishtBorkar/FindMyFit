@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from io import BytesIO
-from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -24,7 +24,6 @@ from findmyfit.errors import (
     InvalidCategoryError,
     InvalidRecommendationRequest,
 )
-
 
 router = APIRouter()
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -93,10 +92,10 @@ async def _read_valid_image(upload: UploadFile, max_bytes: int) -> tuple[bytes, 
 @router.post("/recommend", response_model=RecommendationsResponse)
 async def recommend(
     request: Request,
-    image: UploadFile = File(...),
-    target_category: str = Form(...),
-    match_categories: list[str] = Form(...),
-    max_recommendations: int = Form(..., ge=1),
+    image: Annotated[UploadFile, File()],
+    target_category: Annotated[str, Form()],
+    match_categories: Annotated[list[str], Form()],
+    max_recommendations: Annotated[int, Form(ge=1)],
 ) -> RecommendationsResponse:
     recommender = request.app.state.recommender
     components_ready = all(
