@@ -26,6 +26,7 @@ def load_embeddings(
     embeddings = {
         record.item_id: {
             "category": record.category,
+            "image_hash": record.image_hash,
             "embedding": record.vector.copy(),
         }
         for record in repository.iter_vectors(

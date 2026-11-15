@@ -28,11 +28,12 @@ class MetricProjector:
 
         try:
             checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
-            self.model = FashionCompatibilityModel(
-                embedding_dim=embedding_dim,
-                hidden_dim=checkpoint["hidden_dim"],
-                output_dim=checkpoint["output_dim"],
-            ).to(self.device)
+            model_kwargs = checkpoint.get("model_kwargs", {
+                "embedding_dim": embedding_dim,
+                "hidden_dim": checkpoint["hidden_dim"],
+                "output_dim": checkpoint["output_dim"],
+            })
+            self.model = FashionCompatibilityModel(**model_kwargs).to(self.device)
             self.model.load_state_dict(checkpoint["model_state_dict"])
             self.model.eval()
         except Exception as exc:

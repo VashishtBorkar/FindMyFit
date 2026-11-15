@@ -157,8 +157,13 @@ python scripts/create_clip_embeddings.py
 python scripts/create_metric_embeddings.py
 python scripts/migrate_legacy_data.py --clip-dir <legacy-clip-dir> --metric-dir <legacy-metric-dir>
 python scripts/verify_database.py
-python -m training.metric_learning.train
+python -m training.metric_learning.compare_retrieval --defer-test --output data/tracks/fallback/runs/new-run
 ```
+
+Use `compare_retrieval` for corrected compatibility experiments. The legacy
+`training.metric_learning.train` command retains pair-splitting and label issues
+and should not be used for the controlled benchmark. See
+[training audit](docs/TRAINING_AUDIT.md).
 
 `create_clip_embeddings.py` hashes each image and skips current rows before running
 CLIP. If image content changes, all vectors for that item are invalidated before the
@@ -198,6 +203,19 @@ within `1e-6`, and reports initialization, mean, p50, p95, throughput, and speed
 The API benchmark also includes upload validation, decoding, CLIP inference,
 projection, and serialization. Machine-readable results are ignored under
 `data/benchmarks/`; the real run generates `docs/FAISS_EVALUATION.md`.
+
+## Compare CLIP and FashionSigLIP visually
+
+Use your local catalog images to inspect saved recommendations side by side:
+
+```bash
+python scripts/preview_model_comparison.py --images-dir "C:/path/to/your/images"
+```
+
+Open `data/model-comparison.html` in your browser. The viewer includes 50 exported
+held-out tops, defaults to 12, and needs no database, checkpoints, or GPU.
+See [local viewer instructions](examples/model_comparison/README.md) and the
+[FashionSigLIP experiment results](docs/FASHIONSIGLIP_COMPARISON.md).
 
 ## Tests
 
